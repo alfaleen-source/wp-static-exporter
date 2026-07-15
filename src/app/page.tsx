@@ -54,9 +54,9 @@ export default function Home() {
         </aside>
       </section>
       <section className={styles.features}>
-        <article><b>01</b><h3>Rendered first</h3><p>Chromium captures lazy-loaded and generated page content.</p></article>
+        <article><b>01</b><h3>All views audited</h3><p>Chromium checks desktop, tablet, and mobile CRM placement before export.</p></article>
         <article><b>02</b><h3>Assets localized</h3><p>Images, fonts, CSS, icons, and background files move into assets.</p></article>
-        <article><b>03</b><h3>Code organized</h3><p>Scripts are cleaned, CRM is restored, and major sections are labeled.</p></article>
+        <article><b>03</b><h3>Tags preserved</h3><p>Google tracking stays intact while WordPress runtime scripts are cleaned.</p></article>
         <article><b>04</b><h3>Audited</h3><p>The report lists downloads, retained links, and anything needing review.</p></article>
       </section>
     </main>

@@ -6,7 +6,7 @@ Internal team utility for turning a rendered WordPress landing page into an orga
 - `assets/`
 - `export-report.html`
 
-The exporter renders the page in Chromium, lazy-loads content, localizes images/fonts/stylesheets and CSS backgrounds, removes runtime scripts, restores Central CRM placeholders, places deduplicated CRM loaders before `</body>`, labels major sections, and generates an audit report.
+The exporter renders and audits desktop, tablet, and mobile in Chromium, lazy-loads content, localizes images/fonts/stylesheets and CSS backgrounds, removes WordPress runtime scripts, preserves Google/GTM/Analytics/Ads tags, restores every Central CRM placeholder with its original token and loan type, places deduplicated CRM loaders before `</body>`, labels major sections, and generates an audit report.
 
 ## Local setup
 
@@ -33,5 +33,6 @@ Set `EXPORTER_PASSWORD` in `.env.local`. Without `BLOB_READ_WRITE_TOKEN`, local 
 - 90 MB uncompressed downloaded assets
 - Public HTTP/HTTPS sources only
 - Private, loopback, link-local, and credential-bearing URLs are blocked
+- Export stops instead of producing a package when responsive CRM token placement differs between desktop, tablet, and mobile captures
 
 Only export sites you own or are authorized to reproduce. Review `export-report.html` and visually check desktop, tablet, and mobile layouts before publishing an exported site.

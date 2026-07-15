@@ -1,6 +1,7 @@
 import chromium from "@sparticuz/chromium";
 import * as cheerio from "cheerio";
 import { createHash } from "node:crypto";
+import type { AnyNode } from "domhandler";
 import { existsSync } from "node:fs";
 import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
@@ -14,6 +15,29 @@ const CRM_ORIGIN = "https://centralcrm.kimzahost.website/wp-json/centralcrm/v1/l
 
 type Summary = { assets:number; cssFiles:number; crmForms:number; removedScripts:number; bytes:number; warnings:string[] };
 export type ExportPackage = { zip: Buffer; filename:string; summary:Summary; report:string };
+
+const CAPTURE_VIEWPORTS = [
+  { name:"desktop", width:1440, height:1100 },
+  { name:"tablet", width:834, height:1112 },
+  { name:"mobile", width:390, height:844 },
+] as const;
+
+function isGoogleTrackingScript(node: cheerio.Cheerio<AnyNode>) {
+  const src=(node.attr("src") || "").toLowerCase();
+  const body=node.html() || "";
+  return /(?:googletagmanager\.com|google-analytics\.com|googleadservices\.com|doubleclick\.net|googlesyndication\.com|google\.com\/(?:pagead|ads|conversion))/.test(src)
+    || /(?:\bgtag\s*\(|\bdataLayer\b|googletagmanager|google-analytics|googleadservices|google_conversion|googleads)/i.test(body);
+}
+
+function crmSignature(html:string) {
+  const view=cheerio.load(html);
+  return view("[data-crm-token], [id^='crm-form-']").toArray().map((element) => {
+    const node=view(element);
+    const token=node.attr("data-crm-token") || node.attr("id")?.replace(/^crm-form-/,"") || "";
+    const loan=node.attr("data-loantype") || node.find('input[name="loan_type"]').attr("value") || "상담신청";
+    return `${token}|${loan}`;
+  });
+}
 
 function extensionFor(url: URL, contentType: string) {
   const pathExt = url.pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
@@ -65,17 +89,29 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
         return (await safety.get(host)) ? route.continue() : route.abort("blockedbyclient");
       } catch { return route.abort("blockedbyclient"); }
     });
-    const page = await context.newPage();
-    await page.goto(initialUrl.href, { waitUntil:"domcontentloaded", timeout:60000 });
-    await page.waitForLoadState("networkidle", { timeout:15000 }).catch(() => warnings.push("The source kept making network requests; capture continued after the wait limit."));
-    await page.waitForTimeout(1800);
-    await scrollPage(page);
-    finalUrl = await assertSafePublicUrl(page.url());
-    renderedHtml = await page.content();
+    const captures = new Map<string,string>();
+    for (const viewport of CAPTURE_VIEWPORTS) {
+      const page = await context.newPage();
+      await page.setViewportSize({ width:viewport.width, height:viewport.height });
+      await page.goto(initialUrl.href, { waitUntil:"domcontentloaded", timeout:60000 });
+      await page.waitForLoadState("networkidle", { timeout:15000 }).catch(() => warnings.push(`${viewport.name}: the source kept making network requests; capture continued after the wait limit.`));
+      await page.waitForTimeout(1200);
+      await scrollPage(page);
+      if (viewport.name === "desktop") finalUrl = await assertSafePublicUrl(page.url());
+      captures.set(viewport.name,await page.content());
+      await page.close();
+    }
+    renderedHtml = captures.get("desktop") || "";
+    const responsiveCrm = CAPTURE_VIEWPORTS.map(({name})=>({ name, signature:crmSignature(captures.get(name) || "") }));
+    const baseline=JSON.stringify(responsiveCrm[0].signature);
+    const mismatch=responsiveCrm.find((capture)=>JSON.stringify(capture.signature)!==baseline);
+    if(mismatch) {
+      throw new Error(`Responsive CRM audit failed: desktop, tablet, and mobile do not contain the same ordered form tokens. ${responsiveCrm.map((capture)=>`${capture.name}=${capture.signature.length}`).join(", ")}. Export stopped to prevent an incomplete responsive copy.`);
+    }
   } finally { await browser?.close(); }
 
   const $ = cheerio.load(renderedHtml);
-  const removedScripts = $("script").length;
+  let removedScripts = 0;
   const crmTokens = new Map<string,string>();
 
   $("[data-crm-token]").each((_, element) => {
@@ -85,7 +121,8 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     crmTokens.set(token, loanType);
     wrapper.replaceWith(`<div id="crm-form-${token}" data-loantype="${loanType.replace(/"/g,"&quot;")}"></div>`);
   });
-  $("script,noscript").remove();
+  $("script").each((_,element)=>{ const node=$(element); if(!isGoogleTrackingScript(node)) { node.remove(); removedScripts++; } });
+  $("noscript").each((_,element)=>{ const node=$(element); if(!/(?:googletagmanager|google-analytics|googleadservices|doubleclick|googleads)/i.test(node.html() || "")) node.remove(); });
   $('link[rel="preload"][as="script"],link[rel="modulepreload"],link[rel="EditURI"],link[rel="wlwmanifest"],meta[name="generator"]').remove();
   $("*").each((_, element) => { for (const attr of Object.keys((element as unknown as { attribs?:Record<string,string> }).attribs || {})) if (/^on/i.test(attr)) $(element).removeAttr(attr); });
   $(".elementor-invisible").removeClass("elementor-invisible");
