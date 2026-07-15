@@ -10,6 +10,8 @@ The exporter renders and audits desktop, tablet, and mobile in Chromium, lazy-lo
 
 CSS asset paths are rewritten relative to where they are used: downloaded stylesheets reference sibling files inside `assets/`, while inline `<style>` blocks and `style` attributes reference `assets/...`. HTML-encoded quotes and malformed trailing semicolons in WordPress background URLs are repaired during export. Ultimate Addons full-width row backgrounds are converted from capture-time pixel measurements to responsive `100vw` geometry, with a final `assets/static-overrides.css` safeguard for script-free desktop, tablet, and mobile rendering.
 
+Every package includes the canonical `SCDream1.woff2` through `SCDream9.woff2` files and matching `S-Core1` through `S-Core9` family declarations. Source references to those Dream fonts are redirected to the bundled fixed filenames instead of downloading new hashed copies.
+
 ## Local setup
 
 ```bash

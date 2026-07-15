@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
-import { normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls } from "./css";
+import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES } from "./css";
 
 const resolve=async (url:URL)=>`assets/${url.pathname.split("/").pop()}`;
 
@@ -24,4 +27,31 @@ test("replaces frozen desktop geometry with responsive full-bleed geometry",()=>
   assert.match(output,/background-size:cover/);
   assert.doesNotMatch(output,/1440px|-135px/);
   assert.match(output,/min-width: 100vw; left: 50%; right: auto; margin-left: -50vw; width: 100vw;/);
+});
+
+test("recognizes S-Core Dream font URLs for fixed-name reuse",()=>{
+  assert.equal(bundledSCoreFontName(new URL("https://example.com/fonts/SCDream4.woff2?v=2")),"SCDream4.woff2");
+  assert.equal(bundledSCoreFontName(new URL("https://example.com/fonts/scdream9-webfont.woff2")),"SCDream9.woff2");
+  assert.equal(bundledSCoreFontName(new URL("https://example.com/fonts/other.woff2")),undefined);
+});
+
+test("ships all nine canonical S-Core Dream files and family declarations",async()=>{
+  const expected=[
+    "fb2ca6d8596c0f74de27affb68db5316772eeba64ab485be27bc4afd9e19da81",
+    "eab4125edea401bdfc8ea97247ae7ce00fe4d0fc9772149ddc6ca5635f65f267",
+    "f7b91484486d30b1adad1d7529a3b3e9e4de42298e360dd42c807b2d08080b7c",
+    "fb32a0b2d8bca3abd622851653464ec5359b6a19257a825cfd0d755f026a0553",
+    "77544b9b95e35a95d78ffd461b82f1f4c1d3b5a40d4ed35e8fee70bd92f8f9e3",
+    "36ad73dda443e42205b029d2e76078b837933249801c748223af6f6b6e25b163",
+    "9f84617b1bc267174ec97df81fd07a71227520657ba177920597d04adfd94d31",
+    "1585707328b05ee6d26801539978fe612e8c1e7599ff7ea5a304d7fd9567d69e",
+    "56e0d77cecbf95a8ea6bcc718b69c27827396a7e1e412c6a6bbda6d3c9d795c7",
+  ];
+  assert.equal(BUNDLED_FONT_NAMES.length,9);
+  for(const [index,name] of BUNDLED_FONT_NAMES.entries()) {
+    const buffer=await readFile(join(process.cwd(),"bundled-fonts",name));
+    assert.equal(createHash("sha256").update(buffer).digest("hex"),expected[index]);
+    assert.match(S_CORE_FONT_FACES,new RegExp(`font-family: 'S-Core${index+1}'`));
+    assert.match(S_CORE_FONT_FACES,new RegExp(`url\\('${name.replace(".","\\.")}'\\)`));
+  }
 });

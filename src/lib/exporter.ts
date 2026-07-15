@@ -3,17 +3,22 @@ import * as cheerio from "cheerio";
 import { createHash } from "node:crypto";
 import type { AnyNode } from "domhandler";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { chromium as playwright, request as playwrightRequest, type Browser, type Page } from "playwright-core";
-import { normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, type CssLocation } from "./css";
+import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 
 const MAX_ASSET_BYTES = 18 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 90 * 1024 * 1024;
 const MAX_ASSETS = 450;
 const CRM_ORIGIN = "https://centralcrm.kimzahost.website/wp-json/centralcrm/v1/loader.js?token=";
-const STATIC_OVERRIDES = `/* Static-export responsive safeguards. Loaded last on purpose. */
+const STATIC_OVERRIDES = `/* Canonical bundled S-Core Dream font family. */
+${S_CORE_FONT_FACES}
+
+/* Static-export responsive safeguards. Loaded last on purpose. */
 html, body { max-width: 100%; overflow-x: hidden; }
 @supports (overflow: clip) { html, body { overflow-x: clip; } }
 .upb_row_bg[data-bg-override="full"] {
@@ -141,6 +146,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
 
   const zip = new JSZip();
   const assetsFolder = zip.folder("assets")!;
+  for(const name of BUNDLED_FONT_NAMES) assetsFolder.file(name,await readFile(join(process.cwd(),"bundled-fonts",name)));
   const requestContext = await playwrightRequest.newContext({ ignoreHTTPSErrors:true, userAgent:"Mozilla/5.0 WPStaticExporter/1.0" });
   const localized = new Map<string,string>();
   const failed = new Set<string>();
@@ -152,6 +158,8 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   }
 
   async function localize(url: URL): Promise<string> {
+    const bundledFont=bundledSCoreFontName(url);
+    if(bundledFont) return `assets/${bundledFont}`;
     const key = url.href.split("#")[0];
     if (localized.has(key)) return localized.get(key)!;
     if (localized.size >= MAX_ASSETS) throw new Error(`Asset safety limit reached (${MAX_ASSETS}).`);
@@ -224,7 +232,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   output = beautifyHtml(output, { indent_size:2, wrap_line_length:140, max_preserve_newlines:1, end_with_newline:true, content_unformatted:["pre","textarea"] });
   const name = safeOutputName(requestedName, finalUrl.hostname.replace(/^www\./,""));
   const external = [...new Set([...output.matchAll(/(?:href|src)="(https?:\/\/[^"#]+)"/gi)].map((match)=>match[1]).filter((url)=>!url.startsWith(CRM_ORIGIN)))];
-  const assetCount=localized.size+1;
+  const assetCount=localized.size+BUNDLED_FONT_NAMES.length+1;
   const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, warnings, external });
   zip.file("index.html",output); zip.file("export-report.html",report);
   const zipBuffer = await zip.generateAsync({ type:"nodebuffer", compression:"DEFLATE", compressionOptions:{ level:7 } });

@@ -1,4 +1,18 @@
 export type CssLocation = "asset"|"html";
+export const BUNDLED_FONT_NAMES=Array.from({length:9},(_,index)=>`SCDream${index+1}.woff2`);
+export const S_CORE_FONT_FACES=BUNDLED_FONT_NAMES.map((name,index)=>`@font-face {
+  font-family: 'S-Core${index+1}';
+  src: url('${name}') format('woff2');
+  font-weight: ${index < 4 ? "normal" : "bold"};
+  font-style: normal;
+  font-display: swap;
+}`).join("\n");
+
+export function bundledSCoreFontName(url:URL) {
+  const filename=decodeURIComponent(url.pathname.split("/").pop() || "");
+  const match=filename.match(/^scdream([1-9])(?:[^/]*)\.woff2$/i);
+  return match ? `SCDream${match[1]}.woff2` : undefined;
+}
 
 export async function rewriteCssAssetUrls(
   css:string,

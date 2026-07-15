@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "/api/export": [
       "./node_modules/playwright-core/**/*",
       "./node_modules/@sparticuz/chromium/**/*",
+      "./bundled-fonts/**/*",
     ],
   },
 };
