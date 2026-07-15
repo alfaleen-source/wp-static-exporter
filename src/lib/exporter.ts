@@ -11,6 +11,7 @@ import { chromium as playwright, request as playwrightRequest, type Browser, typ
 import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
 import { centralCrmLoaderUrl, centralCrmPlaceholder, CRM_BATCH_ORIGIN, CRM_ORIGIN } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
+import { stripNonGoogleScriptsFromHtml } from "./scripts";
 import { normalizeStaticWidgets } from "./static-widgets";
 
 const MAX_ASSET_BYTES = 18 * 1024 * 1024;
@@ -167,8 +168,10 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     }
   } finally { await browser?.close(); }
 
+  const strippedScripts=stripNonGoogleScriptsFromHtml(renderedHtml);
+  renderedHtml=strippedScripts.html;
   const $ = cheerio.load(renderedHtml);
-  let removedScripts = 0;
+  let removedScripts = strippedScripts.removed;
   const crmTokens = new Map<string,string>();
 
   $("[data-crm-token], [id^='crm-form-']").each((_, element) => {
