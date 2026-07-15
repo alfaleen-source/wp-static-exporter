@@ -9,13 +9,14 @@ import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { chromium as playwright, request as playwrightRequest, type Browser, type Page } from "playwright-core";
 import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
+import { centralCrmLoaderUrl, centralCrmPlaceholder, CRM_BATCH_ORIGIN, CRM_ORIGIN } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
+import { normalizeStaticWidgets } from "./static-widgets";
 
 const MAX_ASSET_BYTES = 18 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 90 * 1024 * 1024;
 const MAX_ASSETS = 450;
-const CRM_ORIGIN = "https://centralcrm.kimzahost.website/wp-json/centralcrm/v1/loader.js?token=";
-const STATIC_OVERRIDES = `/* Canonical bundled S-Core Dream font family. */
+export const STATIC_OVERRIDES = `/* Canonical bundled S-Core Dream font family. */
 ${S_CORE_FONT_FACES}
 
 /* Static-export responsive safeguards. Loaded last on purpose. */
@@ -28,6 +29,45 @@ html, body { max-width: 100%; overflow-x: hidden; }
   right: auto !important;
   margin-left: -50vw !important;
 }
+
+/* Script-free Ultimate Addons horizontal carousel. */
+[data-static-carousel] .slick-list {
+  width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+[data-static-carousel] .slick-list::-webkit-scrollbar { display: none; }
+[data-static-carousel] .slick-track {
+  width: 100% !important;
+  transform: none !important;
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 60px) / 3);
+  gap: 30px;
+}
+[data-static-carousel] .slick-track::before,
+[data-static-carousel] .slick-track::after { display: none !important; }
+[data-static-carousel] .slick-slide {
+  display: block !important;
+  float: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  scroll-snap-align: start;
+}
+[data-static-carousel] .slick-cloned { display: none !important; }
+@media (max-width: 991px) {
+  [data-static-carousel] .slick-track { grid-auto-columns: calc((100% - 30px) / 2); }
+}
+@media (max-width: 767px) {
+  .vc_hidden-xs { display: none !important; }
+  [data-static-carousel] .slick-track { grid-auto-columns: 100%; gap: 15px; }
+}
+@media (min-width: 768px) and (max-width: 991px) { .vc_hidden-sm { display: none !important; } }
+@media (min-width: 992px) and (max-width: 1199px) { .vc_hidden-md { display: none !important; } }
+@media (min-width: 1200px) { .vc_hidden-lg { display: none !important; } }
 `;
 
 type Summary = { assets:number; cssFiles:number; crmForms:number; removedScripts:number; bytes:number; warnings:string[] };
@@ -131,12 +171,12 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   let removedScripts = 0;
   const crmTokens = new Map<string,string>();
 
-  $("[data-crm-token]").each((_, element) => {
-    const wrapper = $(element); const token = wrapper.attr("data-crm-token");
+  $("[data-crm-token], [id^='crm-form-']").each((_, element) => {
+    const wrapper = $(element); const token = wrapper.attr("data-crm-token") || wrapper.attr("id")?.replace(/^crm-form-/i,"");
     if (!token || !/^[a-f0-9]{40}$/i.test(token)) return;
     const loanType = wrapper.attr("data-loantype") || wrapper.find('input[name="loan_type"]').attr("value") || "상담신청";
     crmTokens.set(token, loanType);
-    wrapper.replaceWith(`<div id="crm-form-${token}" data-loantype="${loanType.replace(/"/g,"&quot;")}"></div>`);
+    wrapper.replaceWith(centralCrmPlaceholder(token,loanType));
   });
   $("script").each((_,element)=>{ const node=$(element); if(!isGoogleTrackingScript(node)) { node.remove(); removedScripts++; } });
   $("noscript").each((_,element)=>{ const node=$(element); if(!/(?:googletagmanager|google-analytics|googleadservices|doubleclick|googleads)/i.test(node.html() || "")) node.remove(); });
@@ -216,6 +256,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     const node=$(element);
     node.attr("style",normalizeFullWidthBackgroundStyle(node.attr("style") || ""));
   });
+  normalizeStaticWidgets($);
   assetsFolder.file("static-overrides.css",STATIC_OVERRIDES);
   cssFiles++;
   $("head").append('\n<link rel="stylesheet" href="assets/static-overrides.css" data-static-exporter="responsive-safeguards">\n');
@@ -225,20 +266,24 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   const main=$("main").first(); if(main.length) main.before("\n<!-- ========== MAIN CONTENT ========== -->\n"); else $("#content").first().before("\n<!-- ========== MAIN CONTENT ========== -->\n");
   $("section").each((_,element)=>{ const node=$(element); const label=node.attr("aria-label")||node.attr("id")||node.attr("class")?.split(/\s+/).slice(0,2).join(" "); if(label) node.before(`\n<!-- ========== SECTION: ${label} ========== -->\n`); });
   $("footer").first().before("\n<!-- ========== SITE FOOTER ========== -->\n");
-  $("[id^='crm-form-']").each((_,element)=>{ const node=$(element); node.before(`\n<!-- ========== CENTRAL CRM FORM: ${node.attr("data-loantype") || "상담신청"} ========== -->\n`); });
-  if (crmTokens.size) { $("body").append("\n<!-- ========== CENTRAL CRM LOADERS ========== -->\n" + [...crmTokens.keys()].map((token)=>`<script src="${CRM_ORIGIN}${token}" async></script>`).join("\n") + "\n"); }
+  $("[data-crm-token]").each((_,element)=>{ const node=$(element); node.before(`\n<!-- ========== CENTRAL CRM FORM: ${node.attr("data-loantype") || "상담신청"} ========== -->\n`); });
+  if (crmTokens.size) {
+    const tokens=[...crmTokens.keys()];
+    const loader=centralCrmLoaderUrl(tokens);
+    $("body").append(`\n<!-- ========== CENTRAL CRM LOADERS ========== -->\n<script src="${loader}" async></script>\n`);
+  }
 
   let output = $.html();
   output = beautifyHtml(output, { indent_size:2, wrap_line_length:140, max_preserve_newlines:1, end_with_newline:true, content_unformatted:["pre","textarea"] });
   const name = safeOutputName(requestedName, finalUrl.hostname.replace(/^www\./,""));
-  const external = [...new Set([...output.matchAll(/(?:href|src)="(https?:\/\/[^"#]+)"/gi)].map((match)=>match[1]).filter((url)=>!url.startsWith(CRM_ORIGIN)))];
+  const external = [...new Set([...output.matchAll(/(?:href|src)="(https?:\/\/[^"#]+)"/gi)].map((match)=>match[1]).filter((url)=>!url.startsWith(CRM_ORIGIN)&&!url.startsWith(CRM_BATCH_ORIGIN)))];
   const assetCount=localized.size+BUNDLED_FONT_NAMES.length+1;
-  const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, warnings, external });
+  const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms:$("[data-crm-token]").length, removedScripts, warnings, external });
   zip.file("index.html",output); zip.file("export-report.html",report);
   const zipBuffer = await zip.generateAsync({ type:"nodebuffer", compression:"DEFLATE", compressionOptions:{ level:7 } });
   await requestContext.dispose();
   const filename=`${name}.zip`;
-  return { zip:zipBuffer, filename, report, summary:{ assets:assetCount, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, bytes:zipBuffer.length, warnings } };
+  return { zip:zipBuffer, filename, report, summary:{ assets:assetCount, cssFiles, crmForms:$("[data-crm-token]").length, removedScripts, bytes:zipBuffer.length, warnings } };
 }
 
 function buildReport(data:{source:string;final:string;name:string;assets:number;cssFiles:number;crmForms:number;removedScripts:number;warnings:string[];external:string[]}) {

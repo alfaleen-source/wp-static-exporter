@@ -45,3 +45,19 @@ export function normalizeFullWidthBackgroundStyle(input:string) {
     .replace(/^\s*;|;\s*$/g,"").trim();
   return `${style}${style && !style.endsWith(";") ? ";" : ""} min-width: 100vw; left: 50%; right: auto; margin-left: -50vw; width: 100vw;`;
 }
+
+export function stripInlineStyleProperties(input:string,properties:string[]) {
+  if(!input)return "";
+  const names=properties.map((name)=>name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|");
+  return input
+    .replace(new RegExp(`(?:^|;)\\s*(?:${names})\\s*:[^;]*`,"gi"),"")
+    .replace(/^\s*;|;\s*$/g,"").trim();
+}
+
+export function formatStaticCounter(value:string,thousandsSeparator=",",decimalSeparator=".") {
+  const normalized=value.trim().replace(/,/g,"");
+  const match=normalized.match(/^(-?)(\d+)(?:\.(\d+))?$/);
+  if(!match)return value;
+  const grouped=thousandsSeparator ? match[2].replace(/\B(?=(\d{3})+(?!\d))/g,thousandsSeparator) : match[2];
+  return `${match[1]}${grouped}${match[3] ? decimalSeparator+match[3] : ""}`;
+}

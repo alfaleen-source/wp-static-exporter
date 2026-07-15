@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES } from "./css";
+import { BUNDLED_FONT_NAMES, bundledSCoreFontName, formatStaticCounter, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, stripInlineStyleProperties } from "./css";
 
 const resolve=async (url:URL)=>`assets/${url.pathname.split("/").pop()}`;
 
@@ -54,4 +54,14 @@ test("ships all nine canonical S-Core Dream files and family declarations",async
     assert.match(S_CORE_FONT_FACES,new RegExp(`font-family: 'S-Core${index+1}'`));
     assert.match(S_CORE_FONT_FACES,new RegExp(`url\\('${name.replace(".","\\.")}'\\)`));
   }
+});
+
+test("materializes counter values without animation",()=>{
+  assert.equal(formatStaticCounter("2928",",","."),"2,928");
+  assert.equal(formatStaticCounter("12345.67"," ",","),"12 345,67");
+  assert.equal(formatStaticCounter("1000","","."),"1000");
+});
+
+test("removes frozen carousel geometry without losing other inline styles",()=>{
+  assert.equal(stripInlineStyleProperties("opacity:1;width:0px;transform:translate3d(0,0,0);color:red",["width","transform"]),"opacity:1;color:red");
 });

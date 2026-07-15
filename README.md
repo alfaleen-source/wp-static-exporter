@@ -12,6 +12,8 @@ CSS asset paths are rewritten relative to where they are used: downloaded styles
 
 Every package includes the canonical `SCDream1.woff2` through `SCDream9.woff2` files and matching `S-Core1` through `S-Core9` family declarations. Source references to those Dream fonts are redirected to the bundled fixed filenames instead of downloading new hashed copies.
 
+JavaScript-driven WordPress counters are materialized at their final `data-counter-value`. Ultimate Addons horizontal carousels are converted to responsive CSS scroll-snap layouts, removing frozen Slick widths and transforms. Central CRM placeholders use repeatable `data-crm-token` attributes, and pages with multiple unique tokens receive one deduplicated batch loader at the bottom.
+
 ## Local setup
 
 ```bash
