@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# WP Static Exporter
 
-## Getting Started
+Internal team utility for turning a rendered WordPress landing page into an organized static ZIP containing:
 
-First, run the development server:
+- `index.html`
+- `assets/`
+- `export-report.html`
+
+The exporter renders the page in Chromium, lazy-loads content, localizes images/fonts/stylesheets and CSS backgrounds, removes runtime scripts, restores Central CRM placeholders, places deduplicated CRM loaders before `</body>`, labels major sections, and generates an audit report.
+
+## Local setup
 
 ```bash
+npm install
+copy .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Set `EXPORTER_PASSWORD` in `.env.local`. Without `BLOB_READ_WRITE_TOKEN`, local downloads work only when the generated ZIP is below Vercel's direct-response limit.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Vercel setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Import this repository into Vercel.
+2. Add an `EXPORTER_PASSWORD` environment variable for Production, Preview, and Development.
+3. Create a Vercel Blob store and connect it to the project. Vercel supplies `BLOB_READ_WRITE_TOKEN` automatically.
+4. Deploy. The API route is configured for a 300-second maximum duration.
 
-## Learn More
+## Operating limits
 
-To learn more about Next.js, take a look at the following resources:
+- One page per export
+- 450 downloaded assets
+- 18 MB per asset
+- 90 MB uncompressed downloaded assets
+- Public HTTP/HTTPS sources only
+- Private, loopback, link-local, and credential-bearing URLs are blocked
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Only export sites you own or are authorized to reproduce. Review `export-report.html` and visually check desktop, tablet, and mobile layouts before publishing an exported site.
