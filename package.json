@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test src/lib/*.test.ts"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",
@@ -27,6 +28,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "tsx": "^4.20.6",
     "typescript": "^5"
   },
   "overrides": {

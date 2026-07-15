@@ -8,6 +8,8 @@ Internal team utility for turning a rendered WordPress landing page into an orga
 
 The exporter renders and audits desktop, tablet, and mobile in Chromium, lazy-loads content, localizes images/fonts/stylesheets and CSS backgrounds, removes WordPress runtime scripts, preserves Google/GTM/Analytics/Ads tags, restores every Central CRM placeholder with its original token and loan type, places deduplicated CRM loaders before `</body>`, labels major sections, and generates an audit report.
 
+CSS asset paths are rewritten relative to where they are used: downloaded stylesheets reference sibling files inside `assets/`, while inline `<style>` blocks and `style` attributes reference `assets/...`. HTML-encoded quotes and malformed trailing semicolons in WordPress background URLs are repaired during export. Ultimate Addons full-width row backgrounds are converted from capture-time pixel measurements to responsive `100vw` geometry, with a final `assets/static-overrides.css` safeguard for script-free desktop, tablet, and mobile rendering.
+
 ## Local setup
 
 ```bash

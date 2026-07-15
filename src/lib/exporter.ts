@@ -6,12 +6,24 @@ import { existsSync } from "node:fs";
 import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { chromium as playwright, request as playwrightRequest, type Browser, type Page } from "playwright-core";
+import { normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, type CssLocation } from "./css";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 
 const MAX_ASSET_BYTES = 18 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 90 * 1024 * 1024;
 const MAX_ASSETS = 450;
 const CRM_ORIGIN = "https://centralcrm.kimzahost.website/wp-json/centralcrm/v1/loader.js?token=";
+const STATIC_OVERRIDES = `/* Static-export responsive safeguards. Loaded last on purpose. */
+html, body { max-width: 100%; overflow-x: hidden; }
+@supports (overflow: clip) { html, body { overflow-x: clip; } }
+.upb_row_bg[data-bg-override="full"] {
+  min-width: 100vw !important;
+  width: 100vw !important;
+  left: 50% !important;
+  right: auto !important;
+  margin-left: -50vw !important;
+}
+`;
 
 type Summary = { assets:number; cssFiles:number; crmForms:number; removedScripts:number; bytes:number; warnings:string[] };
 export type ExportPackage = { zip: Buffer; filename:string; summary:Summary; report:string };
@@ -135,14 +147,8 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   let totalBytes = 0;
   let cssFiles = 0;
 
-  async function localizeCss(css: string, cssUrl: URL): Promise<string> {
-    const refs = [...css.matchAll(/url\(\s*(['"]?)([^)'"\s]+)\1\s*\)/gi)];
-    let output = css;
-    for (const match of refs) {
-      const raw = match[2]; if (/^(data:|blob:|#)/i.test(raw)) continue;
-      try { const path = await localize(new URL(raw, cssUrl)); output = output.split(raw).join(path.replace(/^assets\//, "")); } catch { /* warning recorded by localize */ }
-    }
-    return output;
+  async function localizeCss(css: string, cssUrl: URL, location:CssLocation): Promise<string> {
+    return rewriteCssAssetUrls(css,cssUrl,location,localize);
   }
 
   async function localize(url: URL): Promise<string> {
@@ -173,7 +179,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     const name = assetName(finalAssetUrl, contentType);
     const path = `assets/${name}`;
     localized.set(key, path); totalBytes += buffer.length;
-    if (contentType.toLowerCase().includes("text/css") || name.endsWith(".css")) { cssFiles++; assetsFolder.file(name, await localizeCss(buffer.toString("utf8"), finalAssetUrl)); }
+    if (contentType.toLowerCase().includes("text/css") || name.endsWith(".css")) { cssFiles++; assetsFolder.file(name, await localizeCss(buffer.toString("utf8"), finalAssetUrl,"asset")); }
     else assetsFolder.file(name, buffer);
     return path;
   }
@@ -193,8 +199,18 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     for (const part of srcset.split(",")) { const bits=part.trim().split(/\s+/); const url=bits.shift(); if(url) parts.push(`${await tryLocalize(url)} ${bits.join(" ")}`.trim()); }
     node.attr("srcset",parts.join(", "));
   }
-  for (const element of $("style").toArray()) { const node=$(element); node.text(await localizeCss(node.text(),finalUrl)); }
-  for (const element of $("[style]").toArray()) { const node=$(element); const style=node.attr("style"); if(style) node.attr("style",await localizeCss(style,finalUrl)); }
+  for (const element of $("style").toArray()) { const node=$(element); node.text(await localizeCss(node.text(),finalUrl,"html")); }
+  for (const element of $("[style]").toArray()) { const node=$(element); const style=node.attr("style"); if(style) node.attr("style",await localizeCss(style,finalUrl,"html")); }
+
+  // Ultimate Addons calculates these values in JavaScript for the capture viewport.
+  // Replace the frozen desktop pixels with the plugin's viewport-independent full-bleed form.
+  $('.upb_row_bg[data-bg-override="full"]').each((_,element)=>{
+    const node=$(element);
+    node.attr("style",normalizeFullWidthBackgroundStyle(node.attr("style") || ""));
+  });
+  assetsFolder.file("static-overrides.css",STATIC_OVERRIDES);
+  cssFiles++;
+  $("head").append('\n<link rel="stylesheet" href="assets/static-overrides.css" data-static-exporter="responsive-safeguards">\n');
 
   $("body").prepend("\n<!-- ========== PAGE START ========== -->\n");
   $("header").first().before("\n<!-- ========== SITE HEADER ========== -->\n");
@@ -208,12 +224,13 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   output = beautifyHtml(output, { indent_size:2, wrap_line_length:140, max_preserve_newlines:1, end_with_newline:true, content_unformatted:["pre","textarea"] });
   const name = safeOutputName(requestedName, finalUrl.hostname.replace(/^www\./,""));
   const external = [...new Set([...output.matchAll(/(?:href|src)="(https?:\/\/[^"#]+)"/gi)].map((match)=>match[1]).filter((url)=>!url.startsWith(CRM_ORIGIN)))];
-  const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:localized.size, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, warnings, external });
+  const assetCount=localized.size+1;
+  const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, warnings, external });
   zip.file("index.html",output); zip.file("export-report.html",report);
   const zipBuffer = await zip.generateAsync({ type:"nodebuffer", compression:"DEFLATE", compressionOptions:{ level:7 } });
   await requestContext.dispose();
   const filename=`${name}.zip`;
-  return { zip:zipBuffer, filename, report, summary:{ assets:localized.size, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, bytes:zipBuffer.length, warnings } };
+  return { zip:zipBuffer, filename, report, summary:{ assets:assetCount, cssFiles, crmForms:$("[id^='crm-form-']").length, removedScripts, bytes:zipBuffer.length, warnings } };
 }
 
 function buildReport(data:{source:string;final:string;name:string;assets:number;cssFiles:number;crmForms:number;removedScripts:number;warnings:string[];external:string[]}) {
