@@ -9,6 +9,7 @@ import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { chromium as playwright, request as playwrightRequest, type Browser, type Page } from "playwright-core";
 import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
+import { assertDesignAssetPayload } from "./asset-validation";
 import { centralCrmLoaderUrl, centralCrmPlaceholder } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 import { stripNonGoogleScriptsFromHtml } from "./scripts";
@@ -112,7 +113,7 @@ function assetName(url: URL, contentType: string) {
   return `${base}-${hash}.${ext}`;
 }
 
-async function launchBrowser(): Promise<Browser> {
+export async function launchBrowser(): Promise<Browser> {
   const localCandidates = process.platform === "win32" ? ["C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"] : ["/usr/bin/google-chrome", "/usr/bin/chromium"];
   const local = localCandidates.find(existsSync);
   return playwright.launch({ args: process.env.VERCEL ? chromium.args : ["--disable-gpu", "--no-sandbox"], executablePath: local || await chromium.executablePath(), headless:true });
@@ -134,6 +135,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   let browser: Browser | undefined;
   let renderedHtml = "";
   let finalUrl = initialUrl;
+  let sessionCookie = "";
 
   try {
     browser = await launchBrowser();
@@ -167,6 +169,8 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     if(mismatch) {
       throw new Error(`Responsive CRM audit failed: desktop, tablet, and mobile do not contain the same ordered form tokens. ${responsiveCrm.map((capture)=>`${capture.name}=${capture.signature.length}`).join(", ")}. Export stopped to prevent an incomplete responsive copy.`);
     }
+    const cookies=await context.cookies();
+    sessionCookie=cookies.map((cookie)=>`${cookie.name}=${cookie.value}`).join("; ");
   } finally { await browser?.close(); }
 
   const strippedScripts=stripNonGoogleScriptsFromHtml(renderedHtml);
@@ -192,7 +196,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   const zip = new JSZip();
   const assetsFolder = zip.folder("assets")!;
   for(const name of BUNDLED_FONT_NAMES) assetsFolder.file(name,await readFile(join(process.cwd(),"bundled-fonts",name)));
-  const requestContext = await playwrightRequest.newContext({ ignoreHTTPSErrors:true, userAgent:"Mozilla/5.0 WPStaticExporter/1.0" });
+  const requestContext = await playwrightRequest.newContext({ ignoreHTTPSErrors:true, userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 WPStaticExporter/1.0", extraHTTPHeaders:{ referer:finalUrl.origin+"/", ...(sessionCookie?{cookie:sessionCookie}:{}) } });
   const localized = new Map<string,string>();
   const failed = new Set<string>();
   let totalBytes = 0;
@@ -230,6 +234,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     const finalAssetUrl = current;
     const contentType = headers["content-type"] || "application/octet-stream";
     await response.dispose();
+    assertDesignAssetPayload(buffer,contentType,finalAssetUrl);
     const name = assetName(finalAssetUrl, contentType);
     const path = `assets/${name}`;
     localized.set(key, path); totalBytes += buffer.length;

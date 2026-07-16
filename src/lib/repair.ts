@@ -6,7 +6,8 @@ import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { request as playwrightRequest } from "playwright-core";
 import { bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, type CssLocation } from "./css";
-import { STATIC_OVERRIDES } from "./exporter";
+import { assertDesignAssetPayload } from "./asset-validation";
+import { launchBrowser,STATIC_OVERRIDES } from "./exporter";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 import { externalDependencies, isIntentionalRuntimeExternal, removeWordPressDiscoveryMarkup, scrubExternalDependencies, stripExternalMarkupComments } from "./standalone";
 import { normalizeStaticWidgets } from "./static-widgets";
@@ -36,7 +37,14 @@ export async function repairExistingIndex(html:string,sourceUrl:string,requested
   const $=cheerio.load(html);
   removeWordPressDiscoveryMarkup($);
   const zip=new JSZip(); const assets=zip.folder("assets")!;
-  const requestContext=await playwrightRequest.newContext({ignoreHTTPSErrors:true,userAgent:"Mozilla/5.0 WPStaticRepairer/1.0"});
+  let sessionCookie="";
+  const browser=await launchBrowser();
+  try {
+    const context=await browser.newContext({viewport:{width:1440,height:900},userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 WPStaticRepairer/1.0"});
+    const page=await context.newPage();await page.goto(baseUrl.href,{waitUntil:"domcontentloaded",timeout:60000});await page.waitForLoadState("networkidle",{timeout:15000}).catch(()=>undefined);await page.waitForTimeout(1500);
+    const cookies=await context.cookies();sessionCookie=cookies.map((cookie)=>`${cookie.name}=${cookie.value}`).join("; ");
+  } finally { await browser.close(); }
+  const requestContext=await playwrightRequest.newContext({ignoreHTTPSErrors:true,userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 WPStaticRepairer/1.0",extraHTTPHeaders:{referer:baseUrl.origin+"/",...(sessionCookie?{cookie:sessionCookie}:{})}});
   const localized=new Map<string,string>(); const warnings:string[]=[]; let totalBytes=0; let cssFiles=0;
 
   async function localizeCss(css:string,url:URL,location:CssLocation) {
@@ -51,6 +59,7 @@ export async function repairExistingIndex(html:string,sourceUrl:string,requested
     if(!response.ok()){const status=response.status();await response.dispose();throw new Error(`HTTP ${status}`);}
     const headers=response.headers(); const length=Number(headers["content-length"]||0); if(length>MAX_ASSET_BYTES){await response.dispose();throw new Error("asset exceeds 18 MB");}
     const buffer=await response.body(); const finalUrl=new URL(response.url()); const contentType=headers["content-type"]||"application/octet-stream"; await response.dispose();
+    assertDesignAssetPayload(buffer,contentType,finalUrl);
     if(buffer.length>MAX_ASSET_BYTES||totalBytes+buffer.length>MAX_TOTAL_BYTES)throw new Error("repair package safety limit exceeded");
     const name=assetName(finalUrl,contentType); const path=`assets/${name}`; localized.set(key,path); totalBytes+=buffer.length;
     if(contentType.toLowerCase().includes("text/css")||name.endsWith(".css")){cssFiles++;assets.file(name,await localizeCss(buffer.toString("utf8"),finalUrl,"asset"));}else assets.file(name,buffer);
