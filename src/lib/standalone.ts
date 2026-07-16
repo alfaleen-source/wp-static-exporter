@@ -2,9 +2,14 @@ import type { CheerioAPI } from "cheerio";
 
 const RUNTIME_EXTERNAL=/(?:googletagmanager\.com|google-analytics\.com|googleadservices\.com|doubleclick\.net|googlesyndication\.com|google\.com\/(?:pagead|ads|conversion)|centralcrm\.kimzahost\.website)/i;
 const EXTERNAL=/^https?:\/\//i;
+const DOCUMENT_NAMESPACE=/^https?:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml)\/?$/i;
 
 export function isIntentionalRuntimeExternal(value:string) {
   return EXTERNAL.test(value) && RUNTIME_EXTERNAL.test(value);
+}
+
+function isDocumentNamespace(value:string) {
+  return DOCUMENT_NAMESPACE.test(value.trim());
 }
 
 export function removeWordPressDiscoveryMarkup($:CheerioAPI) {
@@ -30,7 +35,7 @@ export function scrubExternalDependencies($:CheerioAPI) {
     $(`[${attr.replace(":","\\:")}]`).each((_,element)=>{
       const node=$(element);
       const value=(node.attr(attr) || "").trim();
-      if(!EXTERNAL.test(value) || isIntentionalRuntimeExternal(value))return;
+      if(!EXTERNAL.test(value) || isIntentionalRuntimeExternal(value) || isDocumentNamespace(value))return;
       const tag=(element as unknown as { tagName?:string }).tagName?.toLowerCase() || "";
       if(["link","iframe","frame","object","embed"].includes(tag))node.remove();
       else node.removeAttr(attr);
@@ -50,7 +55,7 @@ export function scrubExternalDependencies($:CheerioAPI) {
   $("*").each((_,element)=>{
     const node=$(element);
     for(const [attr,value] of Object.entries((element as unknown as { attribs?:Record<string,string> }).attribs || {})) {
-      if(!/^https?:\/\//i.test(value.trim()) || isIntentionalRuntimeExternal(value.trim()))continue;
+      if(!/^https?:\/\//i.test(value.trim()) || isIntentionalRuntimeExternal(value.trim()) || isDocumentNamespace(value))continue;
       node.removeAttr(attr); removed++;
     }
   });
@@ -65,7 +70,7 @@ export function externalDependencies(html:string) {
     /@import\s+(?:url\()?\s*["']?(https?:\/\/[^)'"\s;]+)/gi,
   ];
   for(const pattern of patterns)for(const match of html.matchAll(pattern))found.add(match[1].replace(/&amp;/g,"&"));
-  return [...found];
+  return [...found].filter((value)=>!isDocumentNamespace(value));
 }
 
 export function stripExternalMarkupComments(html:string) {

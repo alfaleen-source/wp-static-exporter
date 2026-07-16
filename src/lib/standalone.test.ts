@@ -28,6 +28,14 @@ test("audits HTML and CSS external dependencies",()=>{
   assert.deepEqual(values,["https://site.test/a.png","https://site.test/b.png","https://site.test/c.css"]);
 });
 
+test("does not treat standard SVG namespaces as network dependencies",()=>{
+  const $=cheerio.load(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg>`);
+  scrubExternalDependencies($);
+  const output=$.html();
+  assert.match(output,/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.deepEqual(externalDependencies(output),[]);
+});
+
 test("removes obsolete conditional comments with remote WordPress stylesheets",()=>{
   const html=stripExternalMarkupComments(`<!--[if lt IE 9]><link rel="stylesheet" href="https://site.test/wp-content/ie.css"><![endif]--><main>OK</main>`);
   assert.equal(html,"<main>OK</main>");
