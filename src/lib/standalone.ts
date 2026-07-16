@@ -20,13 +20,13 @@ export function removeWordPressDiscoveryMarkup($:CheerioAPI) {
       || /\/(?:feed|comments\/feed|wp-json|xmlrpc\.php)(?:[/?#]|$)/.test(href);
     if(discovery) { node.remove(); removed++; }
   });
-  $("meta[property^='og:'],meta[name^='twitter:'],meta[name='generator']").remove();
+  $("meta[name='generator']").remove();
   return removed;
 }
 
 export function scrubExternalDependencies($:CheerioAPI) {
   let removed=0;
-  for(const attr of ["href","src","poster","data","action","background","xlink:href","data-src","data-lazy-src","data-original","data-bg","data-background","data-background-image","data-lazy-bg"]) {
+  for(const attr of ["href","src","poster","data","action","background","content","xlink:href","data-src","data-lazy-src","data-original","data-bg","data-background","data-background-image","data-lazy-bg"]) {
     $(`[${attr.replace(":","\\:")}]`).each((_,element)=>{
       const node=$(element);
       const value=(node.attr(attr) || "").trim();
@@ -47,13 +47,20 @@ export function scrubExternalDependencies($:CheerioAPI) {
       removed++;
     });
   }
+  $("*").each((_,element)=>{
+    const node=$(element);
+    for(const [attr,value] of Object.entries((element as unknown as { attribs?:Record<string,string> }).attribs || {})) {
+      if(!/^https?:\/\//i.test(value.trim()) || isIntentionalRuntimeExternal(value.trim()))continue;
+      node.removeAttr(attr); removed++;
+    }
+  });
   return removed;
 }
 
 export function externalDependencies(html:string) {
   const found=new Set<string>();
   const patterns=[
-    /(?:href|src|poster|data|action|background|xlink:href|data-src|data-lazy-src|data-original|data-bg|data-background|data-background-image|data-lazy-bg)=["'](https?:\/\/[^"']+)/gi,
+    /[\w:-]+=["'](https?:\/\/[^"']+)/gi,
     /url\(\s*["']?(https?:\/\/[^)'"\s]+)/gi,
     /@import\s+(?:url\()?\s*["']?(https?:\/\/[^)'"\s;]+)/gi,
   ];

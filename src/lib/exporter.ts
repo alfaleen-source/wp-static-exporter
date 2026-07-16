@@ -249,6 +249,11 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     if(!/(?:stylesheet|icon|apple-touch-icon|mask-icon|fluid-icon)/.test(rel) && !(rel.includes("preload")&&/(?:style|image|font)/.test(as)))continue;
     const href=node.attr("href"); if(href)node.attr("href",await tryLocalize(href));
   }
+  for(const element of $("meta[content]").toArray()) {
+    const node=$(element); const name=(node.attr("name") || "").toLowerCase(); const property=(node.attr("property") || "").toLowerCase();
+    if(!/(?:tileimage|image|icon|logo)/.test(`${name} ${property}`))continue;
+    const content=node.attr("content"); if(content&&/^https?:\/\//i.test(content))node.attr("content",await tryLocalize(content));
+  }
   const assetAttributes:[string,string][]=[
     ["img[src]","src"],["img[data-src]","data-src"],["img[data-lazy-src]","data-lazy-src"],["img[data-original]","data-original"],
     ["source[src]","src"],["video[poster]","poster"],["audio[src]","src"],["video[src]","src"],["input[type='image'][src]","src"],
