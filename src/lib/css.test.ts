@@ -22,6 +22,12 @@ test("does not rewrite embedded data URLs",async()=>{
   assert.equal(await rewriteCssAssetUrls(css,new URL("https://example.com/"),"html",resolve),css);
 });
 
+test("removes CSS dependencies that cannot be downloaded in standalone mode",async()=>{
+  const css=await rewriteCssAssetUrls(`.hero{background:url(https://site.test/missing.png)}@import "https://site.test/missing.css";`,new URL("https://site.test/page"),"html",async()=>{ throw new Error("offline"); },true);
+  assert.equal(css,`.hero{background:url("")}`);
+  assert.doesNotMatch(css,/https?:\/\//);
+});
+
 test("replaces frozen desktop geometry with responsive full-bleed geometry",()=>{
   const output=normalizeFullWidthBackgroundStyle("background-size:cover;min-width:1440px;left:-135px;width:1440px;");
   assert.match(output,/background-size:cover/);

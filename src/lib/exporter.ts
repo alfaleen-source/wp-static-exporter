@@ -9,9 +9,10 @@ import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { chromium as playwright, request as playwrightRequest, type Browser, type Page } from "playwright-core";
 import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
-import { centralCrmLoaderUrl, centralCrmPlaceholder, CRM_BATCH_ORIGIN, CRM_ORIGIN } from "./crm";
+import { centralCrmLoaderUrl, centralCrmPlaceholder } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 import { stripNonGoogleScriptsFromHtml } from "./scripts";
+import { externalDependencies, isIntentionalRuntimeExternal, removeWordPressDiscoveryMarkup, scrubExternalDependencies, stripExternalMarkupComments } from "./standalone";
 import { normalizeStaticWidgets } from "./static-widgets";
 
 const MAX_ASSET_BYTES = 18 * 1024 * 1024;
@@ -173,6 +174,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   const $ = cheerio.load(renderedHtml);
   let removedScripts = strippedScripts.removed;
   const crmTokens = new Map<string,string>();
+  removeWordPressDiscoveryMarkup($);
 
   $("[data-crm-token], [id^='crm-form-']").each((_, element) => {
     const wrapper = $(element); const token = wrapper.attr("data-crm-token") || wrapper.attr("id")?.replace(/^crm-form-/i,"");
@@ -183,7 +185,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   });
   $("script").each((_,element)=>{ const node=$(element); if(!isGoogleTrackingScript(node)) { node.remove(); removedScripts++; } });
   $("noscript").each((_,element)=>{ const node=$(element); if(!/(?:googletagmanager|google-analytics|googleadservices|doubleclick|googleads)/i.test(node.html() || "")) node.remove(); });
-  $('link[rel="preload"][as="script"],link[rel="modulepreload"],link[rel="EditURI"],link[rel="wlwmanifest"],meta[name="generator"]').remove();
+  $('link[rel="preload"][as="script"],link[rel="modulepreload"]').remove();
   $("*").each((_, element) => { for (const attr of Object.keys((element as unknown as { attribs?:Record<string,string> }).attribs || {})) if (/^on/i.test(attr)) $(element).removeAttr(attr); });
   $(".elementor-invisible").removeClass("elementor-invisible");
 
@@ -197,14 +199,15 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   let cssFiles = 0;
 
   async function localizeCss(css: string, cssUrl: URL, location:CssLocation): Promise<string> {
-    return rewriteCssAssetUrls(css,cssUrl,location,localize);
+    return rewriteCssAssetUrls(css,cssUrl,location,localize,true);
   }
 
   async function localize(url: URL): Promise<string> {
     const bundledFont=bundledSCoreFontName(url);
     if(bundledFont) return `assets/${bundledFont}`;
+    const fragment=url.hash;
     const key = url.href.split("#")[0];
-    if (localized.has(key)) return localized.get(key)!;
+    if (localized.has(key)) return `${localized.get(key)!}${fragment}`;
     if (localized.size >= MAX_ASSETS) throw new Error(`Asset safety limit reached (${MAX_ASSETS}).`);
     let current = new URL(key);
     let response;
@@ -232,7 +235,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     localized.set(key, path); totalBytes += buffer.length;
     if (contentType.toLowerCase().includes("text/css") || name.endsWith(".css")) { cssFiles++; assetsFolder.file(name, await localizeCss(buffer.toString("utf8"), finalAssetUrl,"asset")); }
     else assetsFolder.file(name, buffer);
-    return path;
+    return `${path}${fragment}`;
   }
 
   async function tryLocalize(raw: string, base = finalUrl) {
@@ -241,14 +244,29 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     catch (cause) { const label = `${raw} — ${cause instanceof Error ? cause.message : "download failed"}`; if (!failed.has(label)) { failed.add(label); warnings.push(label); } return raw; }
   }
 
-  for (const element of $("link[rel~='stylesheet']").toArray()) { const node=$(element); const href=node.attr("href"); if(href) node.attr("href",await tryLocalize(href)); }
-  for (const selector of ["img[src]","source[src]","video[poster]","audio[src]","video[src]","input[type='image'][src]","link[rel~='icon'][href]"]) {
-    for (const element of $(selector).toArray()) { const node=$(element); const attr=node.attr("src")!==undefined?"src":node.attr("poster")!==undefined?"poster":"href"; const value=node.attr(attr); if(value) node.attr(attr,await tryLocalize(value)); }
+  for (const element of $("link[href]").toArray()) {
+    const node=$(element); const rel=(node.attr("rel") || "").toLowerCase(); const as=(node.attr("as") || "").toLowerCase();
+    if(!/(?:stylesheet|icon|apple-touch-icon|mask-icon|fluid-icon)/.test(rel) && !(rel.includes("preload")&&/(?:style|image|font)/.test(as)))continue;
+    const href=node.attr("href"); if(href)node.attr("href",await tryLocalize(href));
   }
-  for (const element of $("[srcset]").toArray()) {
-    const node=$(element); const srcset=node.attr("srcset") || ""; const parts=[];
+  const assetAttributes:[string,string][]=[
+    ["img[src]","src"],["img[data-src]","data-src"],["img[data-lazy-src]","data-lazy-src"],["img[data-original]","data-original"],
+    ["source[src]","src"],["video[poster]","poster"],["audio[src]","src"],["video[src]","src"],["input[type='image'][src]","src"],
+    ["[background]","background"],["svg image[href]","href"],["svg image[xlink\\:href]","xlink:href"],["svg use[href]","href"],["svg use[xlink\\:href]","xlink:href"],
+  ];
+  for (const [selector,attr] of assetAttributes) {
+    for (const element of $(selector).toArray()) { const node=$(element); const value=node.attr(attr); if(value)node.attr(attr,await tryLocalize(value)); }
+  }
+  for(const attr of ["data-bg","data-background","data-background-image","data-lazy-bg"]) {
+    for(const element of $(`[${attr}]`).toArray()) {
+      const node=$(element); const value=node.attr(attr); if(!value)continue;
+      node.attr(attr,/url\s*\(/i.test(value) ? await localizeCss(value,finalUrl,"html") : await tryLocalize(value));
+    }
+  }
+  for (const element of $("[srcset],[data-srcset]").toArray()) {
+    const node=$(element); const attr=node.attr("srcset")!==undefined?"srcset":"data-srcset"; const srcset=node.attr(attr) || ""; if(/^data:/i.test(srcset.trim()))continue; const parts=[];
     for (const part of srcset.split(",")) { const bits=part.trim().split(/\s+/); const url=bits.shift(); if(url) parts.push(`${await tryLocalize(url)} ${bits.join(" ")}`.trim()); }
-    node.attr("srcset",parts.join(", "));
+    node.attr(attr,parts.join(", "));
   }
   for (const element of $("style").toArray()) { const node=$(element); node.text(await localizeCss(node.text(),finalUrl,"html")); }
   for (const element of $("[style]").toArray()) { const node=$(element); const style=node.attr("style"); if(style) node.attr("style",await localizeCss(style,finalUrl,"html")); }
@@ -275,11 +293,15 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     const loader=centralCrmLoaderUrl(tokens);
     $("body").append(`\n<!-- ========== CENTRAL CRM LOADERS ========== -->\n<script src="${loader}" async></script>\n`);
   }
+  scrubExternalDependencies($);
 
-  let output = $.html();
+  let output = stripExternalMarkupComments($.html());
   output = beautifyHtml(output, { indent_size:2, wrap_line_length:140, max_preserve_newlines:1, end_with_newline:true, content_unformatted:["pre","textarea"] });
   const name = safeOutputName(requestedName, finalUrl.hostname.replace(/^www\./,""));
-  const external = [...new Set([...output.matchAll(/(?:href|src)="(https?:\/\/[^"#]+)"/gi)].map((match)=>match[1]).filter((url)=>!url.startsWith(CRM_ORIGIN)&&!url.startsWith(CRM_BATCH_ORIGIN)))];
+  const auditedExternal=externalDependencies(output);
+  const residualExternal=auditedExternal.filter((value)=>!isIntentionalRuntimeExternal(value));
+  if(residualExternal.length)throw new Error(`Standalone dependency audit failed: ${residualExternal.slice(0,5).join(", ")}`);
+  const external = auditedExternal.filter(isIntentionalRuntimeExternal);
   const assetCount=localized.size+BUNDLED_FONT_NAMES.length+1;
   const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms:$("[data-crm-token]").length, removedScripts, warnings, external });
   zip.file("index.html",output); zip.file("export-report.html",report);
@@ -292,5 +314,5 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
 function buildReport(data:{source:string;final:string;name:string;assets:number;cssFiles:number;crmForms:number;removedScripts:number;warnings:string[];external:string[]}) {
   const esc=(v:string)=>v.replace(/[&<>"']/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
   const list=(items:string[])=>items.length?`<ul>${items.map((x)=>`<li>${esc(x)}</li>`).join("")}</ul>`:"<p>None</p>";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Export report — ${esc(data.name)}</title><style>body{font:15px/1.6 Arial;max-width:900px;margin:50px auto;padding:0 24px;color:#25283b}h1{font-size:30px}h2{margin-top:32px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.grid div{padding:18px;background:#f3f3f9;border-radius:10px}.grid b,.grid span{display:block}.grid b{font-size:22px}code{word-break:break-all}@media(max-width:650px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><h1>Static export report</h1><p><b>Source:</b> <code>${esc(data.source)}</code><br><b>Captured:</b> <code>${esc(data.final)}</code><br><b>Generated:</b> ${new Date().toISOString()}</p><div class="grid"><div><b>${data.assets}</b><span>assets</span></div><div><b>${data.cssFiles}</b><span>CSS files</span></div><div><b>${data.crmForms}</b><span>CRM forms</span></div><div><b>${data.removedScripts}</b><span>scripts removed</span></div></div><h2>Warnings</h2>${list(data.warnings)}<h2>Retained external links</h2>${list(data.external)}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Export report — ${esc(data.name)}</title><style>body{font:15px/1.6 Arial;max-width:900px;margin:50px auto;padding:0 24px;color:#25283b}h1{font-size:30px}h2{margin-top:32px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.grid div{padding:18px;background:#f3f3f9;border-radius:10px}.grid b,.grid span{display:block}.grid b{font-size:22px}code{word-break:break-all}@media(max-width:650px){.grid{grid-template-columns:1fr 1fr}}</style></head><body><h1>Static export report</h1><p><b>Source:</b> <code>${esc(data.source)}</code><br><b>Captured:</b> <code>${esc(data.final)}</code><br><b>Generated:</b> ${new Date().toISOString()}</p><div class="grid"><div><b>${data.assets}</b><span>assets</span></div><div><b>${data.cssFiles}</b><span>CSS files</span></div><div><b>${data.crmForms}</b><span>CRM forms</span></div><div><b>${data.removedScripts}</b><span>scripts removed</span></div></div><h2>Warnings</h2>${list(data.warnings)}<h2>Intentional runtime external links</h2>${list(data.external)}</body></html>`;
 }

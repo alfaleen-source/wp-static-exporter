@@ -19,6 +19,7 @@ export async function rewriteCssAssetUrls(
   baseUrl:URL,
   location:CssLocation,
   resolve:(url:URL)=>Promise<string>,
+  stripUnresolved=false,
 ) {
   let output=css.replace(/&(?:amp;)?quot;|&#0*34;|&#x0*22;/gi,'"');
   const localPath=(path:string)=>location === "asset" ? path.replace(/^assets\//,"") : path;
@@ -27,14 +28,14 @@ export async function rewriteCssAssetUrls(
     const raw=(match[2] ?? match[3] ?? "").trim().replace(/;+\s*$/,"");
     if(!raw || /^(data:|blob:|#)/i.test(raw)) continue;
     try { output=output.split(match[0]).join(`url(${localPath(await resolve(new URL(raw,baseUrl)))})`); }
-    catch { /* Keep the source reference if it cannot be downloaded. */ }
+    catch { if(stripUnresolved) output=output.split(match[0]).join('url("")'); }
   }
   const imports=[...output.matchAll(/@import\s+(["'])(.*?)\1\s*([^;]*);/gi)];
   for(const match of imports) {
     const raw=match[2].trim();
     if(!raw || /^(data:|blob:|#)/i.test(raw)) continue;
     try { output=output.split(match[0]).join(`@import url(${localPath(await resolve(new URL(raw,baseUrl)))}) ${match[3].trim()};`); }
-    catch { /* Keep the source reference if it cannot be downloaded. */ }
+    catch { if(stripUnresolved) output=output.split(match[0]).join(""); }
   }
   return output;
 }
