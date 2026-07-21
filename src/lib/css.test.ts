@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { BUNDLED_FONT_NAMES, bundledSCoreFontName, formatStaticCounter, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, stripInlineStyleProperties } from "./css";
+import { BUNDLED_FONT_NAMES, bundledSCoreFontName, formatStaticCounter, isRemoteFontStylesheet, isWebFontUrl, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, stripInlineStyleProperties } from "./css";
 
 const resolve=async (url:URL)=>`assets/${url.pathname.split("/").pop()}`;
 
@@ -41,6 +41,13 @@ test("recognizes S-Core Dream font URLs for fixed-name reuse",()=>{
   assert.equal(bundledSCoreFontName(new URL("https://example.com/fonts/other.woff2")),undefined);
 });
 
+test("classifies remote font dependencies that full exports must omit",()=>{
+  assert.equal(isWebFontUrl(new URL("https://cdn.example/font.woff2?v=1")),true);
+  assert.equal(isWebFontUrl(new URL("https://cdn.example/photo.webp")),false);
+  assert.equal(isRemoteFontStylesheet(new URL("https://fonts.googleapis.com/css2?family=Roboto")),true);
+  assert.equal(isRemoteFontStylesheet(new URL("https://example.com/theme.css")),false);
+});
+
 test("ships all nine canonical S-Core Dream files and family declarations",async()=>{
   const expected=[
     "fb2ca6d8596c0f74de27affb68db5316772eeba64ab485be27bc4afd9e19da81",
@@ -57,6 +64,8 @@ test("ships all nine canonical S-Core Dream files and family declarations",async
   for(const [index,name] of BUNDLED_FONT_NAMES.entries()) {
     const buffer=await readFile(join(process.cwd(),"bundled-fonts",name));
     assert.equal(createHash("sha256").update(buffer).digest("hex"),expected[index]);
+    assert.match(S_CORE_FONT_FACES,/font-family: 'SCDream'/);
+    assert.match(S_CORE_FONT_FACES,new RegExp(`font-weight: ${(index+1)*100}`));
     assert.match(S_CORE_FONT_FACES,new RegExp(`font-family: 'S-Core${index+1}'`));
     assert.match(S_CORE_FONT_FACES,new RegExp(`url\\('${name.replace(".","\\.")}'\\)`));
   }

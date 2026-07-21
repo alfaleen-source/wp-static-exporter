@@ -16,7 +16,25 @@ Legacy WordPress themes are supported through the same rendered browser session 
 
 CSS asset paths are rewritten relative to where they are used: downloaded stylesheets reference sibling files inside `assets/`, while inline `<style>` blocks and `style` attributes reference `assets/...`. HTML-encoded quotes and malformed trailing semicolons in WordPress background URLs are repaired during export. Ultimate Addons full-width row backgrounds are converted from capture-time pixel measurements to responsive `100vw` geometry, with a final `assets/static-overrides.css` safeguard for script-free desktop, tablet, and mobile rendering.
 
-Every package includes the canonical `SCDream1.woff2` through `SCDream9.woff2` files and matching `S-Core1` through `S-Core9` family declarations. Source references to those Dream fonts are redirected to the bundled fixed filenames instead of downloading new hashed copies.
+Every package includes the canonical `SCDream1.woff2` through `SCDream9.woff2` files and matching weighted `SCDream` and `S-Core1` through `S-Core9` family declarations. Source references to those Dream fonts are redirected to the bundled fixed filenames. Other remote web-font binaries and Google Fonts/Adobe Typekit stylesheets are omitted from new exports and repair patches.
+
+## Clean up an earlier extracted folder
+
+The cleanup command reuses an already-downloaded export. It always writes a **new folder**, leaving the original untouched:
+
+```powershell
+npm run cleanup -- "C:\path\to\old-export" "C:\path\to\old-export-cleaned"
+```
+
+If the second path is omitted, the output is created beside the input with `-cleaned` appended. The command:
+
+- replaces all downloaded web-font declarations and binaries with the nine canonical `SCDream*.woff2` files;
+- preserves mixed stylesheets while removing their old `@font-face` blocks;
+- removes font-only stylesheets after replacing them with canonical SCDream declarations;
+- removes non-CSS assets only when they are unreachable from HTML, JavaScript, reachable CSS, SVG, and other inspected text dependencies;
+- **does not automatically delete uncertain CSS files**. Unreferenced CSS and the assets it may need are retained as review candidates.
+
+Open `cleanup-report.html` in the new folder after every run. It lists every deletion, the exact reason, removed font families, size savings, and CSS files retained for manual review. `cleanup-report.json` contains the same evidence for automation. Because icon libraries sometimes use fonts, visually verify icon glyphs at desktop, tablet, and mobile sizes before publishing.
 
 JavaScript-driven WordPress counters are materialized at their final `data-counter-value`. Ultimate Addons horizontal carousels are converted to responsive CSS scroll-snap layouts, removing frozen Slick widths and transforms. Central CRM placeholders use repeatable `data-crm-token` attributes, and pages with multiple unique tokens receive one deduplicated batch loader at the bottom.
 
