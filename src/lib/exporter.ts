@@ -8,7 +8,7 @@ import { join } from "node:path";
 import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { chromium as playwright, request as playwrightRequest, type Browser, type Page } from "playwright-core";
-import { BUNDLED_FONT_NAMES, bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
+import { BUNDLED_FONT_NAMES, bundledSCoreFontName, isRemoteFontStylesheet, isWebFontUrl, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, S_CORE_FONT_FACES, type CssLocation } from "./css";
 import { assertDesignAssetPayload } from "./asset-validation";
 import { centralCrmLoaderUrl, centralCrmPlaceholder } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
@@ -209,6 +209,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   async function localize(url: URL): Promise<string> {
     const bundledFont=bundledSCoreFontName(url);
     if(bundledFont) return `assets/${bundledFont}`;
+    if(isWebFontUrl(url)) throw new Error("non-SCDream web font omitted");
     const fragment=url.hash;
     const key = url.href.split("#")[0];
     if (localized.has(key)) return `${localized.get(key)!}${fragment}`;
@@ -234,6 +235,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     const finalAssetUrl = current;
     const contentType = headers["content-type"] || "application/octet-stream";
     await response.dispose();
+    if(/^font\//i.test(contentType)) throw new Error("non-SCDream web font omitted");
     assertDesignAssetPayload(buffer,contentType,finalAssetUrl);
     const name = assetName(finalAssetUrl, contentType);
     const path = `assets/${name}`;
@@ -252,7 +254,8 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   for (const element of $("link[href]").toArray()) {
     const node=$(element); const rel=(node.attr("rel") || "").toLowerCase(); const as=(node.attr("as") || "").toLowerCase();
     if(!/(?:stylesheet|icon|apple-touch-icon|mask-icon|fluid-icon)/.test(rel) && !(rel.includes("preload")&&/(?:style|image|font)/.test(as)))continue;
-    const href=node.attr("href"); if(href)node.attr("href",await tryLocalize(href));
+    const href=node.attr("href");
+    if(href){try{if(rel.includes("stylesheet")&&isRemoteFontStylesheet(new URL(href,finalUrl))){node.remove();continue;}}catch{/* handled by localization */}node.attr("href",await tryLocalize(href));}
   }
   for(const element of $("meta[content]").toArray()) {
     const node=$(element); const name=(node.attr("name") || "").toLowerCase(); const property=(node.attr("property") || "").toLowerCase();

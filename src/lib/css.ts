@@ -1,9 +1,16 @@
 export type CssLocation = "asset"|"html";
 export const BUNDLED_FONT_NAMES=Array.from({length:9},(_,index)=>`SCDream${index+1}.woff2`);
 export const S_CORE_FONT_FACES=BUNDLED_FONT_NAMES.map((name,index)=>`@font-face {
+  font-family: 'SCDream';
+  src: url('${name}') format('woff2');
+  font-weight: ${(index+1)*100};
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
   font-family: 'S-Core${index+1}';
   src: url('${name}') format('woff2');
-  font-weight: ${index < 4 ? "normal" : "bold"};
+  font-weight: ${(index+1)*100};
   font-style: normal;
   font-display: swap;
 }`).join("\n");
@@ -12,6 +19,14 @@ export function bundledSCoreFontName(url:URL) {
   const filename=decodeURIComponent(url.pathname.split("/").pop() || "");
   const match=filename.match(/^scdream([1-9])(?:[^/]*)\.woff2$/i);
   return match ? `SCDream${match[1]}.woff2` : undefined;
+}
+
+export function isWebFontUrl(url:URL) {
+  return /\.(?:woff2?|ttf|otf|eot)$/i.test(url.pathname);
+}
+
+export function isRemoteFontStylesheet(url:URL) {
+  return /^(?:fonts\.googleapis\.com|use\.typekit\.net)$/i.test(url.hostname);
 }
 
 export async function rewriteCssAssetUrls(

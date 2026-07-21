@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
       "./node_modules/@sparticuz/chromium/**/*",
       "./bundled-fonts/**/*",
     ],
+    "/api/cleanup": ["./bundled-fonts/**/*"],
   },
 };
 

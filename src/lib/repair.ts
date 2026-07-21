@@ -5,7 +5,7 @@ import { join } from "node:path";
 import JSZip from "jszip";
 import { html as beautifyHtml } from "js-beautify";
 import { request as playwrightRequest } from "playwright-core";
-import { bundledSCoreFontName, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, type CssLocation } from "./css";
+import { bundledSCoreFontName, isRemoteFontStylesheet, isWebFontUrl, normalizeFullWidthBackgroundStyle, rewriteCssAssetUrls, type CssLocation } from "./css";
 import { assertDesignAssetPayload } from "./asset-validation";
 import { launchBrowser,STATIC_OVERRIDES } from "./exporter";
 import { assertSafePublicUrl, safeOutputName } from "./security";
@@ -53,12 +53,14 @@ export async function repairExistingIndex(html:string,sourceUrl:string,requested
   async function localize(url:URL):Promise<string> {
     const font=bundledSCoreFontName(url);
     if(font) { if(!localized.has(`font:${font}`)){localized.set(`font:${font}`,`assets/${font}`);assets.file(font,await readFile(join(process.cwd(),"bundled-fonts",font)));} return `assets/${font}`; }
+    if(isWebFontUrl(url))throw new Error("non-SCDream web font omitted");
     const fragment=url.hash; const key=url.href.split("#")[0]; if(localized.has(key))return `${localized.get(key)!}${fragment}`;
     if(localized.size>=MAX_ASSETS)throw new Error(`Repair asset limit reached (${MAX_ASSETS}).`);
     const safe=await assertSafePublicUrl(key); const response=await requestContext.get(safe.href,{timeout:30000,maxRedirects:5,headers:{accept:"*/*"}});
     if(!response.ok()){const status=response.status();await response.dispose();throw new Error(`HTTP ${status}`);}
     const headers=response.headers(); const length=Number(headers["content-length"]||0); if(length>MAX_ASSET_BYTES){await response.dispose();throw new Error("asset exceeds 18 MB");}
     const buffer=await response.body(); const finalUrl=new URL(response.url()); const contentType=headers["content-type"]||"application/octet-stream"; await response.dispose();
+    if(/^font\//i.test(contentType))throw new Error("non-SCDream web font omitted");
     assertDesignAssetPayload(buffer,contentType,finalUrl);
     if(buffer.length>MAX_ASSET_BYTES||totalBytes+buffer.length>MAX_TOTAL_BYTES)throw new Error("repair package safety limit exceeded");
     const name=assetName(finalUrl,contentType); const path=`assets/${name}`; localized.set(key,path); totalBytes+=buffer.length;
@@ -72,7 +74,7 @@ export async function repairExistingIndex(html:string,sourceUrl:string,requested
 
   for(const element of $("link[href]").toArray()){
     const node=$(element);const rel=(node.attr("rel")||"").toLowerCase();const as=(node.attr("as")||"").toLowerCase();
-    if(/(?:stylesheet|icon|apple-touch-icon|mask-icon|fluid-icon)/.test(rel)||(rel.includes("preload")&&/(?:style|image|font)/.test(as))){const value=node.attr("href");if(value)node.attr("href",await tryLocalize(value));}
+    if(/(?:stylesheet|icon|apple-touch-icon|mask-icon|fluid-icon)/.test(rel)||(rel.includes("preload")&&/(?:style|image|font)/.test(as))){const value=node.attr("href");if(value){try{if(rel.includes("stylesheet")&&isRemoteFontStylesheet(new URL(value,baseUrl))){node.remove();continue;}}catch{/* handled by localization */}node.attr("href",await tryLocalize(value));}}
   }
   for(const element of $("meta[content]").toArray()){
     const node=$(element);const kind=`${node.attr("name")||""} ${node.attr("property")||""}`.toLowerCase();const value=node.attr("content");
