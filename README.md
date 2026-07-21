@@ -20,7 +20,14 @@ Every package includes the canonical `SCDream1.woff2` through `SCDream9.woff2` f
 
 ## Clean up an earlier extracted folder
 
-The cleanup command reuses an already-downloaded export. It always writes a **new folder**, leaving the original untouched:
+The **Clean existing export** tab accepts the ZIP from an earlier export and returns a new cleaned ZIP. The original upload is never modified. Small files work directly in local development; deployed files up to 100 MB use Vercel Blob client uploads so they do not hit the platform's 4.5 MB function request limit.
+
+1. Open **Clean existing export**.
+2. Choose the old export ZIP, optionally set a package name, and enter the team password.
+3. Select **Clean and package export**.
+4. Download the result and open `cleanup-report.html` before publishing.
+
+For local batch work, the cleanup command uses the same engine and always writes a **new folder**:
 
 ```powershell
 npm run cleanup -- "C:\path\to\old-export" "C:\path\to\old-export-cleaned"

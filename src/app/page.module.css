@@ -4,7 +4,7 @@
 .eyebrow { color:#6965dc; font-size:11px; font-weight:800; letter-spacing:.2em; margin-bottom:5px; }
 .header h1 { font-size:clamp(28px,4vw,42px); letter-spacing:-.04em; color:#181a2b; }
 .subtitle { color:#6d7185; margin-top:7px; font-size:15px; }
-.tabs { display:flex; gap:7px; width:max-content; margin:0 0 18px; padding:5px; border:1px solid #e1e2ed; border-radius:14px; background:#fff; box-shadow:0 8px 30px rgba(30,31,54,.05); }
+.tabs { display:flex; gap:7px; width:max-content; max-width:100%; margin:0 0 18px; padding:5px; border:1px solid #e1e2ed; border-radius:14px; background:#fff; box-shadow:0 8px 30px rgba(30,31,54,.05); overflow-x:auto; }
 .tabs button { min-height:42px; padding:0 18px; border:0; border-radius:10px; color:#727589; background:transparent; font:800 13px/1 var(--font-sans); cursor:pointer; }
 .tabs button:disabled { cursor:wait; }
 .tabs .activeTab { color:#fff; background:#5b57e8; box-shadow:0 7px 18px #5b57e833; }
