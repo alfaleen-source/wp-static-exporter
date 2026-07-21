@@ -43,6 +43,17 @@ If the second path is omitted, the output is created beside the input with `-cle
 
 Open `cleanup-report.html` in the new folder after every run. It lists every deletion, the exact reason, removed font families, size savings, and CSS files retained for manual review. `cleanup-report.json` contains the same evidence for automation. Because icon libraries sometimes use fonts, visually verify icon glyphs at desktop, tablet, and mobile sizes before publishing.
 
+## Manage Vercel Blob storage
+
+The password-protected **Manage storage** tab reclaims storage without opening the Vercel dashboard:
+
+1. Enter the team password and select **Show stored files**.
+2. Review filenames, package types, upload dates, and sizes.
+3. Select up to 50 files and choose **Delete selected**.
+4. Confirm the exact file count and total size in the browser prompt.
+
+The server only lists and deletes files currently found beneath this app's `exports/`, `repairs/`, `cleanups/`, and `cleanup-inputs/` prefixes. It re-lists Blob storage immediately before deletion and refuses unrelated, stale, duplicate, empty, or oversized selections. Files elsewhere in the same Blob store are never displayed or accepted for deletion. Deletion is permanent.
+
 JavaScript-driven WordPress counters are materialized at their final `data-counter-value`. Ultimate Addons horizontal carousels are converted to responsive CSS scroll-snap layouts, removing frozen Slick widths and transforms. Central CRM placeholders use repeatable `data-crm-token` attributes, and pages with multiple unique tokens receive one deduplicated batch loader at the bottom.
 
 ## Local setup
