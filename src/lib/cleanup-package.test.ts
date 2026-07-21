@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import JSZip from "jszip";
-import { cleanupZipPackage } from "./cleanup-package";
+import { cleanupFileMap,cleanupZipPackage } from "./cleanup-package";
 
 async function zipOf(files:Record<string,string>) {const zip=new JSZip();for(const [path,body] of Object.entries(files))zip.file(path,body);return zip.generateAsync({type:"nodebuffer"});}
 
@@ -21,4 +21,14 @@ test("accepts safe Windows ZIP separators",async()=>{
   const input=await zipOf({"index.html":"<html><body></body></html>"});const archive=await JSZip.loadAsync(input);const entry=archive.file("index.html")!;
   Object.defineProperty(entry,"unsafeOriginalName",{value:"site\\index.html"});entry.name="site\\index.html";delete archive.files["index.html"];archive.files[entry.name]=entry;
   const result=await cleanupZipPackage(await archive.generateAsync({type:"nodebuffer"}),"windows");assert.equal(result.filename,"windows-cleaned.zip");
+});
+
+test("provides the same canonical cleanup pass for newly generated full exports",async()=>{
+  const result=await cleanupFileMap(new Map([
+    ["index.html",Buffer.from('<html><head><link rel="stylesheet" href="assets/site.css"></head><body><img src="assets/used.png"></body></html>')],
+    ["assets/site.css",Buffer.from('@font-face{font-family:Roboto;src:url(roboto.woff2)}.page{color:#222}')],
+    ["assets/roboto.woff2",Buffer.from("font")],["assets/used.png",Buffer.from("used")],["assets/orphan.png",Buffer.from("orphan")],
+  ]));
+  assert(!result.files.has("assets/roboto.woff2"));assert(!result.files.has("assets/orphan.png"));assert(result.files.has("assets/used.png"));
+  assert.doesNotMatch(result.files.get("assets/site.css")!.toString(),/@font-face/);assert(result.files.has("assets/SCDream9.woff2"));
 });

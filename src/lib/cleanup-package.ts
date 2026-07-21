@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join,posix } from "node:path";
 import JSZip from "jszip";
 import { BUNDLED_FONT_NAMES } from "./css";
-import { cleanupExport,cleanupReportHtml,type CleanupReport } from "./cleanup";
+import { cleanupExport,cleanupReportHtml,type CleanupReport,type CleanupResult } from "./cleanup";
 
 const MAX_ZIP_BYTES=100*1024*1024;
 const MAX_FILES=1_000;
@@ -10,6 +10,11 @@ const MAX_FILE_BYTES=25*1024*1024;
 const MAX_UNCOMPRESSED_BYTES=250*1024*1024;
 
 export type CleanupPackage={zip:Buffer;filename:string;report:CleanupReport;summary:{beforeFiles:number;afterFiles:number;removedFiles:number;savedBytes:number;cssCandidates:number;fonts:number;bytes:number;warnings:string[]}};
+
+export async function cleanupFileMap(files:Map<string,Buffer>):Promise<CleanupResult> {
+  const fonts=new Map<string,Buffer>();for(const name of BUNDLED_FONT_NAMES)fonts.set(name,await readFile(join(process.cwd(),"bundled-fonts",name)));
+  return cleanupExport(files,fonts);
+}
 
 function safeName(value:string) {
   return (value||"cleaned-export").replace(/\.zip$/i,"").replace(/[^a-z0-9._-]+/gi,"-").replace(/^-+|-+$/g,"").slice(0,80)||"cleaned-export";
@@ -44,8 +49,7 @@ export async function cleanupZipPackage(input:Buffer,requestedName=""):Promise<C
     if(total>MAX_UNCOMPRESSED_BYTES)throw new Error("The ZIP expands beyond 250 MB.");
     if(files.has(path))throw new Error(`The ZIP contains a duplicate path: ${path}`);files.set(path,buffer);
   }
-  const fonts=new Map<string,Buffer>();for(const name of BUNDLED_FONT_NAMES)fonts.set(name,await readFile(join(process.cwd(),"bundled-fonts",name)));
-  const result=cleanupExport(stripSharedFolder(files),fonts);const output=new JSZip();
+  const result=await cleanupFileMap(stripSharedFolder(files));const output=new JSZip();
   for(const [path,buffer] of result.files)output.file(path,buffer);
   output.file("cleanup-report.html",cleanupReportHtml(result.report));output.file("cleanup-report.json",JSON.stringify(result.report,null,2));
   const zip=await output.generateAsync({type:"nodebuffer",compression:"DEFLATE",compressionOptions:{level:7}});
