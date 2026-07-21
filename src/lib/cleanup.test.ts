@@ -32,3 +32,14 @@ test("replaces all old font faces and font files with canonical SCDream woff2",(
 test("rejects inputs without index.html",()=>{
   assert.throws(()=>cleanupExport(new Map([["page.txt",Buffer.from("x")]]),fonts()),/index\.html/);
 });
+
+test("tolerates malformed third-party CSS and reports a warning instead of stopping cleanup",()=>{
+  const result=cleanupExport(new Map([
+    ["index.html",Buffer.from('<html><head><link rel="stylesheet" href="assets/broken.css"></head><body></body></html>')],
+    ["assets/broken.css",Buffer.from('@font-face{font-family:"Roboto";src:url(roboto.woff2)}\n.valid{color:red}\n.broken{color blue}')],
+    ["assets/roboto.woff2",Buffer.from("roboto")],
+  ]),fonts());
+  const css=result.files.get("assets/broken.css")!.toString();
+  assert.doesNotMatch(css,/@font-face/);assert.match(css,/\.valid\{color:red\}/);assert.match(css,/\.broken\{color blue\}/);
+  assert(!result.files.has("assets/roboto.woff2"));assert(result.report.warnings.some((warning)=>warning.includes("assets/broken.css contains malformed CSS")));
+});

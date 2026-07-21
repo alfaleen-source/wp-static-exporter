@@ -57,10 +57,33 @@ function cssReferences(path:string,css:string) {
   return refs;
 }
 
+function tolerantStripFontFaces(css:string) {
+  const ranges:{start:number;end:number;body:string}[]=[];let cursor=0;
+  while(cursor<css.length) {
+    const match=/@font-face\b/gi;match.lastIndex=cursor;const found=match.exec(css);if(!found)break;
+    let index=match.lastIndex,quote="",comment=false,open=-1,depth=0;
+    for(;index<css.length;index++) {
+      const char=css[index],next=css[index+1];
+      if(comment){if(char==="*"&&next==="/"){comment=false;index++;}continue;}
+      if(quote){if(char==="\\"){index++;continue;}if(char===quote)quote="";continue;}
+      if(char==="/"&&next==="*"){comment=true;index++;continue;}if(char==='"'||char==="'"){quote=char;continue;}
+      if(char==="{"){if(open<0)open=index;depth++;continue;}if(char==="}"&&open>=0&&--depth===0){ranges.push({start:found.index,end:index+1,body:css.slice(open+1,index)});cursor=index+1;break;}
+    }
+    if(open<0||depth>0)cursor=match.lastIndex;
+  }
+  const families=new Set<string>();for(const range of ranges){const family=range.body.match(/(?:^|[;{])\s*font-family\s*:\s*([^;}]+)/i)?.[1];if(family)families.add(family.replace(/["']/g,"").trim());}
+  let output=css;for(const range of ranges.reverse())output=output.slice(0,range.start)+output.slice(range.end);
+  return {css:output,families,removed:ranges.length,fontOnly:ranges.length>0&&!output.replace(/\/\*[\s\S]*?\*\//g,"").replace(/@(?:charset|layer)\s+[^;]+;/gi,"").trim()};
+}
+
 function stripFontFaces(css:string) {
-  const root=postcss.parse(css);const families=new Set<string>();let removed=0;
-  root.walkAtRules(/^font-face$/i,(rule)=>{rule.walkDecls(/^font-family$/i,(decl)=>{families.add(decl.value.replace(/["']/g,"").trim());});rule.remove();removed++;});
-  return {css:root.toString(),families,removed,fontOnly:removed>0&&!root.nodes.some((node)=>node.type!=="comment"&&!(node.type==="atrule"&&/^(?:charset|layer)$/i.test(node.name)&&!node.nodes))};
+  try {
+    const root=postcss.parse(css);const families=new Set<string>();let removed=0;
+    root.walkAtRules(/^font-face$/i,(rule)=>{rule.walkDecls(/^font-family$/i,(decl)=>{families.add(decl.value.replace(/["']/g,"").trim());});rule.remove();removed++;});
+    return {css:root.toString(),families,removed,fontOnly:removed>0&&!root.nodes.some((node)=>node.type!=="comment"&&!(node.type==="atrule"&&/^(?:charset|layer)$/i.test(node.name)&&!node.nodes)),parseWarning:false};
+  } catch {
+    return {...tolerantStripFontFaces(css),parseWarning:true};
+  }
 }
 
 function sumBytes(files:Map<string,Buffer>){return [...files.values()].reduce((total,file)=>total+file.length,0);}
@@ -70,18 +93,19 @@ export function cleanupExport(input:Map<string,Buffer>,canonicalFonts:Map<string
   for(const [rawPath,buffer] of input){const path=normalizePath(rawPath);if(path)files.set(path,Buffer.from(buffer));}
   if(![...files.keys()].some((path)=>/^(?:.*\/)?index\.html$/i.test(path)))throw new Error("The input folder must contain an index.html file.");
   const originalSizes=new Map([...files].map(([path,buffer])=>[path,buffer.length]));
-  const before={files:files.size,bytes:sumBytes(files)};const removedFiles:CleanupReport["removedFiles"]=[];const removedFontFamilies=new Set<string>();const fontOnlyCss=new Set<string>();
+  const before={files:files.size,bytes:sumBytes(files)};const removedFiles:CleanupReport["removedFiles"]=[];const removedFontFamilies=new Set<string>();const fontOnlyCss=new Set<string>();const malformedCss=new Set<string>();
 
   for(const [path,buffer] of [...files]) {
     const ext=posix.extname(path).toLowerCase();if(ext!==".css")continue;
     const stripped=stripFontFaces(buffer.toString("utf8"));
+    if(stripped.parseWarning)malformedCss.add(path);
     for(const family of stripped.families)removedFontFamilies.add(family);
     if(stripped.removed)files.set(path,Buffer.from(stripped.css));
     if(stripped.fontOnly)fontOnlyCss.add(path);
   }
   for(const [path,buffer] of [...files]) {
     if(!/\.html?$/i.test(path))continue;const $=cheerio.load(buffer.toString("utf8"));
-    $("style").each((_,element)=>{const node=$(element);const stripped=stripFontFaces(node.text());for(const family of stripped.families)removedFontFamilies.add(family);if(stripped.fontOnly)node.remove();else if(stripped.removed)node.text(stripped.css);});
+    $("style").each((index,element)=>{const node=$(element);const stripped=stripFontFaces(node.text());if(stripped.parseWarning)malformedCss.add(`${path} (inline style ${index+1})`);for(const family of stripped.families)removedFontFamilies.add(family);if(stripped.fontOnly)node.remove();else if(stripped.removed)node.text(stripped.css);});
     $("link[rel~='stylesheet'][href]").each((_,element)=>{const node=$(element);const target=resolveReference(path,node.attr("href")||"");if(fontOnlyCss.has(target))node.remove();});
     if(!$("link[href='assets/static-overrides.css']").length)$("head").append('\n<link rel="stylesheet" href="assets/static-overrides.css" data-static-exporter="responsive-safeguards">\n');
     files.set(path,Buffer.from($.html()));
@@ -105,6 +129,7 @@ export function cleanupExport(input:Map<string,Buffer>,canonicalFonts:Map<string
   removedFiles.sort((a,b)=>a.path.localeCompare(b.path));retainedCssCandidates.sort((a,b)=>a.path.localeCompare(b.path));
   const warnings=[
     "Font cleanup intentionally removes every web-font family except the bundled SCDream/S-Core files. Visually verify icon glyphs if the source used an icon font.",
+    ...[...malformedCss].sort().map((path)=>`${path} contains malformed CSS. Cleanup used tolerant font removal and preserved the remaining CSS; visually verify this stylesheet.`),
     ...(retainedCssCandidates.length?[`${retainedCssCandidates.length} unreferenced CSS candidate(s) were retained. Review cleanup-report.html before deleting them manually.`]:[]),
   ];
   return {files,report:{before,after:{files:files.size,bytes:sumBytes(files)},removedFiles,retainedCssCandidates,removedFontFamilies:[...removedFontFamilies].sort(),warnings}};
