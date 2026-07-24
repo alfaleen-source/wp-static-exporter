@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { centralCrmLoaderUrl, centralCrmPlaceholder, CRM_BATCH_ORIGIN, CRM_ORIGIN, slugCrmLoaders, slugCrmSignature } from "./crm";
+import * as cheerio from "cheerio";
+import { centralCrmLoaderUrl, centralCrmPlaceholder, CRM_BATCH_ORIGIN, CRM_ORIGIN, resetSlugCrmPlaceholder, slugCrmLoaders, slugCrmSignature } from "./crm";
 
 test("uses repeatable data-token placeholders",()=>{
   assert.equal(centralCrmPlaceholder("a".repeat(40),'Loan "A"'),`<div data-crm-token="${"a".repeat(40)}" data-loantype="Loan &quot;A&quot;"></div>`);
@@ -32,4 +33,10 @@ test("rejects CRM loaders whose host and API namespace do not match",()=>{
 test("derives the CRM namespace needed to remove rendered state",()=>{
   const [loader]=slugCrmLoaders(`<script src="https://maycrm.kimzahost.website/wp-json/maycrm/v1/loader.js?slug=speedycashfinance-mobile&v=1.5.0"></script>`);
   assert.equal(`data-${loader.namespace}-rendered`,"data-maycrm-rendered");
+});
+
+test("resets rendered CRM content while preserving dynamic loan type values",()=>{
+  const $=cheerio.load(`<div data-maycrm-embed="speedycashfinance-desktop" data-loan-type="Y2쏘론빠름" data-maycrm-rendered="1"><form>rendered</form></div>`);
+  resetSlugCrmPlaceholder($("[data-maycrm-embed]"),"maycrm");
+  assert.equal($.html(),`<html><head></head><body><div data-maycrm-embed="speedycashfinance-desktop" data-loan-type="Y2쏘론빠름"></div></body></html>`);
 });

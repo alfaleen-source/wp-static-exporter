@@ -1,3 +1,6 @@
+import type { Cheerio } from "cheerio";
+import type { AnyNode } from "domhandler";
+
 export const CRM_ORIGIN="https://centralcrm.kimzahost.website/wp-json/centralcrm/v1/loader.js?token=";
 export const CRM_BATCH_ORIGIN="https://centralcrm.kimzahost.website/wp-json/centralcrm/v1/loader-batch.js?tokens=";
 
@@ -34,4 +37,8 @@ export function slugCrmLoaders(html:string):SlugCrmLoader[] {
 export function slugCrmSignature(html:string) {
   return [...html.matchAll(/\bdata-([a-z][a-z0-9_-]*)-embed=["']([^"']+)["']/gi)]
     .map((match)=>`${match[1].toLowerCase()}|${match[2]}`);
+}
+
+export function resetSlugCrmPlaceholder(node:Cheerio<AnyNode>,namespace:string) {
+  node.empty().removeAttr(`data-${namespace}-rendered`);
 }

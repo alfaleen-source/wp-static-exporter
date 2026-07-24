@@ -12,7 +12,7 @@ import { BUNDLED_FONT_NAMES, bundledSCoreFontName, isRemoteFontStylesheet, isWeb
 import { assertDesignAssetPayload } from "./asset-validation";
 import { cleanupReportHtml } from "./cleanup";
 import { cleanupFileMap } from "./cleanup-package";
-import { centralCrmLoaderUrl, centralCrmPlaceholder, slugCrmLoaders, slugCrmSignature } from "./crm";
+import { centralCrmLoaderUrl, centralCrmPlaceholder, resetSlugCrmPlaceholder, slugCrmLoaders, slugCrmSignature } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 import { stripNonGoogleScriptsFromHtml } from "./scripts";
 import { externalDependencies, isIntentionalRuntimeExternal, removeWordPressDiscoveryMarkup, scrubExternalDependencies, stripExternalMarkupComments } from "./standalone";
@@ -193,7 +193,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   });
   for(const loader of embeddedCrmLoaders) {
     $(`[${loader.attribute}="${loader.slug}"]`).each((_,element)=>{
-      $(element).empty().removeAttr(`data-${loader.namespace}-rendered`);
+      resetSlugCrmPlaceholder($(element),loader.namespace);
     });
   }
   $("script").each((_,element)=>{ const node=$(element); if(!isGoogleTrackingScript(node)) { node.remove(); removedScripts++; } });
