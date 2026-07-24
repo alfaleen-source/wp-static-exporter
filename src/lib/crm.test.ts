@@ -28,3 +28,8 @@ test("rejects CRM loaders whose host and API namespace do not match",()=>{
   assert.deepEqual(slugCrmLoaders(`<script src="https://evil.test/wp-json/maycrm/v1/loader.js?slug=x"></script>`),[]);
   assert.deepEqual(slugCrmLoaders(`<script src="https://kim.kimzahost.website/wp-json/maycrm/v1/loader.js?slug=x"></script>`),[]);
 });
+
+test("derives the CRM namespace needed to remove rendered state",()=>{
+  const [loader]=slugCrmLoaders(`<script src="https://maycrm.kimzahost.website/wp-json/maycrm/v1/loader.js?slug=speedycashfinance-mobile&v=1.5.0"></script>`);
+  assert.equal(`data-${loader.namespace}-rendered`,"data-maycrm-rendered");
+});

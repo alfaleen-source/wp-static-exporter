@@ -192,7 +192,9 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     wrapper.replaceWith(centralCrmPlaceholder(token,loanType));
   });
   for(const loader of embeddedCrmLoaders) {
-    $(`[${loader.attribute}="${loader.slug}"]`).each((_,element)=>{ $(element).empty(); });
+    $(`[${loader.attribute}="${loader.slug}"]`).each((_,element)=>{
+      $(element).empty().removeAttr(`data-${loader.namespace}-rendered`);
+    });
   }
   $("script").each((_,element)=>{ const node=$(element); if(!isGoogleTrackingScript(node)) { node.remove(); removedScripts++; } });
   $("noscript").each((_,element)=>{ const node=$(element); if(!/(?:googletagmanager|google-analytics|googleadservices|doubleclick|googleads)/i.test(node.html() || "")) node.remove(); });
