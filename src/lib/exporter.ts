@@ -12,7 +12,7 @@ import { BUNDLED_FONT_NAMES, bundledSCoreFontName, isRemoteFontStylesheet, isWeb
 import { assertDesignAssetPayload } from "./asset-validation";
 import { cleanupReportHtml } from "./cleanup";
 import { cleanupFileMap } from "./cleanup-package";
-import { centralCrmLoaderUrl, centralCrmPlaceholder } from "./crm";
+import { centralCrmLoaderUrl, centralCrmPlaceholder, slugCrmLoaders, slugCrmSignature } from "./crm";
 import { assertSafePublicUrl, safeOutputName } from "./security";
 import { stripNonGoogleScriptsFromHtml } from "./scripts";
 import { externalDependencies, isIntentionalRuntimeExternal, removeWordPressDiscoveryMarkup, scrubExternalDependencies, stripExternalMarkupComments } from "./standalone";
@@ -93,12 +93,13 @@ function isGoogleTrackingScript(node: cheerio.Cheerio<AnyNode>) {
 
 function crmSignature(html:string) {
   const view=cheerio.load(html);
-  return view("[data-crm-token], [id^='crm-form-']").toArray().map((element) => {
+  const central=view("[data-crm-token], [id^='crm-form-']").toArray().map((element) => {
     const node=view(element);
     const token=node.attr("data-crm-token") || node.attr("id")?.replace(/^crm-form-/,"") || "";
     const loan=node.attr("data-loantype") || node.find('input[name="loan_type"]').attr("value") || "상담신청";
     return `${token}|${loan}`;
   });
+  return [...central,...slugCrmSignature(html)];
 }
 
 function extensionFor(url: URL, contentType: string) {
@@ -175,6 +176,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     sessionCookie=cookies.map((cookie)=>`${cookie.name}=${cookie.value}`).join("; ");
   } finally { await browser?.close(); }
 
+  const embeddedCrmLoaders=slugCrmLoaders(renderedHtml);
   const strippedScripts=stripNonGoogleScriptsFromHtml(renderedHtml);
   renderedHtml=strippedScripts.html;
   const $ = cheerio.load(renderedHtml);
@@ -189,6 +191,9 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     crmTokens.set(token, loanType);
     wrapper.replaceWith(centralCrmPlaceholder(token,loanType));
   });
+  for(const loader of embeddedCrmLoaders) {
+    $(`[${loader.attribute}="${loader.slug}"]`).each((_,element)=>{ $(element).empty(); });
+  }
   $("script").each((_,element)=>{ const node=$(element); if(!isGoogleTrackingScript(node)) { node.remove(); removedScripts++; } });
   $("noscript").each((_,element)=>{ const node=$(element); if(!/(?:googletagmanager|google-analytics|googleadservices|doubleclick|googleads)/i.test(node.html() || "")) node.remove(); });
   $('link[rel="preload"][as="script"],link[rel="modulepreload"]').remove();
@@ -308,6 +313,10 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
     const loader=centralCrmLoaderUrl(tokens);
     $("body").append(`\n<!-- ========== CENTRAL CRM LOADERS ========== -->\n<script src="${loader}" async></script>\n`);
   }
+  for(const loader of embeddedCrmLoaders) {
+    if(!$(`[${loader.attribute}="${loader.slug}"]`).length)continue;
+    $("body").append(`\n<!-- ========== ${loader.namespace.toUpperCase()} CRM LOADER: ${loader.slug} ========== -->\n<script src="${loader.src}" defer></script>\n`);
+  }
   scrubExternalDependencies($);
 
   let output = stripExternalMarkupComments($.html());
@@ -324,7 +333,8 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   warnings.push(...cleaned.report.warnings);
   const assetCount=[...cleaned.files.keys()].filter((path)=>path.startsWith("assets/")).length;
   cssFiles=[...cleaned.files.keys()].filter((path)=>path.toLowerCase().endsWith(".css")).length;
-  const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms:$("[data-crm-token]").length, removedScripts, warnings, external });
+  const crmForms=$("[data-crm-token]").length+embeddedCrmLoaders.reduce((count,loader)=>count+$(`[${loader.attribute}="${loader.slug}"]`).length,0);
+  const report = buildReport({ source:initialUrl.href, final:finalUrl.href, name, assets:assetCount, cssFiles, crmForms, removedScripts, warnings, external });
   const outputZip=new JSZip();for(const [path,buffer] of cleaned.files)outputZip.file(path,buffer);
   outputZip.file("export-report.html",report);
   outputZip.file("cleanup-report.html",cleanupReportHtml(cleaned.report));
@@ -332,7 +342,7 @@ export async function exportStaticSite(inputUrl: string, requestedName: string):
   const zipBuffer = await outputZip.generateAsync({ type:"nodebuffer", compression:"DEFLATE", compressionOptions:{ level:7 } });
   await requestContext.dispose();
   const filename=`${name}.zip`;
-  return { zip:zipBuffer, filename, report, summary:{ assets:assetCount, cssFiles, crmForms:$("[data-crm-token]").length, removedScripts, bytes:zipBuffer.length, warnings } };
+  return { zip:zipBuffer, filename, report, summary:{ assets:assetCount, cssFiles, crmForms, removedScripts, bytes:zipBuffer.length, warnings } };
 }
 
 function buildReport(data:{source:string;final:string;name:string;assets:number;cssFiles:number;crmForms:number;removedScripts:number;warnings:string[];external:string[]}) {

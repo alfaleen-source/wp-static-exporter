@@ -1,11 +1,20 @@
 import type { CheerioAPI } from "cheerio";
 
-const RUNTIME_EXTERNAL=/(?:googletagmanager\.com|google-analytics\.com|googleadservices\.com|doubleclick\.net|googlesyndication\.com|google\.com\/(?:pagead|ads|conversion)|centralcrm\.kimzahost\.website)/i;
+const TRACKING_RUNTIME=/(?:googletagmanager\.com|google-analytics\.com|googleadservices\.com|doubleclick\.net|googlesyndication\.com|google\.com\/(?:pagead|ads|conversion))/i;
 const EXTERNAL=/^https?:\/\//i;
 const DOCUMENT_NAMESPACE=/^https?:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml)\/?$/i;
 
 export function isIntentionalRuntimeExternal(value:string) {
-  return EXTERNAL.test(value) && RUNTIME_EXTERNAL.test(value);
+  if(!EXTERNAL.test(value))return false;
+  if(TRACKING_RUNTIME.test(value))return true;
+  try {
+    const url=new URL(value);
+    const match=url.pathname.match(/^\/wp-json\/([a-z][a-z0-9_-]*)\/v1\/loader(?:-batch)?\.js$/i);
+    if(url.protocol!=="https:" || !url.hostname.endsWith(".kimzahost.website") || !match)return false;
+    const namespace=match[1].toLowerCase();
+    const hostPrefix=url.hostname.slice(0,-".kimzahost.website".length);
+    return hostPrefix===namespace || namespace===`${hostPrefix}crm`;
+  } catch { return false; }
 }
 
 function isDocumentNamespace(value:string) {
