@@ -11,9 +11,10 @@ type Viewport = "mobile" | "desktop";
 type Locale = "ko" | "en";
 type Selected = { element: HTMLElement; label: string } | null;
 
-const TEXT_SELECTOR = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,small,label,a,button";
 const IMAGE_SELECTOR = "img";
 const EDITOR_STYLE_ID = "xtractor-editor-style";
+const TEXT_WRAPPER_ATTRIBUTE = "data-x-text-wrapper";
+const NON_EDITABLE_SELECTOR = "script,style,svg,canvas,iframe,object,embed,video,audio,input,textarea,select,option,noscript,template";
 
 const copy = {
   ko: {
@@ -160,25 +161,47 @@ export default function EditorPage() {
     style.id = EDITOR_STYLE_ID;
     style.textContent = `[data-x-editable]{cursor:text}[data-x-editable]:hover,[data-x-image]:hover{outline:2px dashed #7c5cff;outline-offset:3px}[data-x-selected]{outline:3px solid #7c5cff!important;outline-offset:3px}`;
     doc.head.append(style);
-    doc.querySelectorAll<HTMLElement>(TEXT_SELECTOR).forEach((element) => {
-      if (!element.closest("script,style,svg") && element.children.length === 0) {
-        element.contentEditable = "true";
-        element.dataset.xEditable = "true";
-        element.spellcheck = true;
-        element.addEventListener("input", () => setStatus(t.pending));
+
+    // Make every visible text run editable, not just a small list of semantic tags.
+    // Leaf elements can be edited as-is. Text mixed with icons, spans, or <br>
+    // nodes is isolated in a temporary span so editing it cannot remove siblings.
+    const showText = doc.defaultView?.NodeFilter.SHOW_TEXT ?? 4;
+    const textNodes: Text[] = [];
+    const walker = doc.createTreeWalker(doc.body, showText);
+    while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+
+    textNodes.forEach((textNode) => {
+      if (!textNode.data.trim()) return;
+      const parent = textNode.parentElement;
+      if (!parent || parent.closest(NON_EDITABLE_SELECTOR)) return;
+
+      const meaningfulChildren = Array.from(parent.children).filter((child) => child.tagName !== "BR");
+      let editable = parent;
+      if (meaningfulChildren.length > 0 || parent.childNodes.length > 1) {
+        const wrapper = doc.createElement("span");
+        wrapper.setAttribute(TEXT_WRAPPER_ATTRIBUTE, "true");
+        textNode.replaceWith(wrapper);
+        wrapper.append(textNode);
+        editable = wrapper;
       }
+      editable.contentEditable = "true";
+      editable.dataset.xEditable = "true";
+      editable.spellcheck = true;
     });
     doc.querySelectorAll<HTMLElement>(IMAGE_SELECTOR).forEach((element) => { element.dataset.xImage = "true"; });
-    doc.addEventListener("click", (event) => {
+    doc.oninput = () => setStatus(t.pending);
+    doc.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const target = (event.target as HTMLElement).closest<HTMLElement>(`${TEXT_SELECTOR},${IMAGE_SELECTOR},section,article,div`);
+      const eventTarget = event.target as HTMLElement;
+      const target = eventTarget.closest<HTMLElement>("[data-x-editable],[data-x-image]")
+        ?? eventTarget.closest<HTMLElement>("section,article,main,div");
       if (!target || target === doc.body || target === doc.documentElement) return;
       doc.querySelectorAll("[data-x-selected]").forEach((node) => node.removeAttribute("data-x-selected"));
       target.dataset.xSelected = "true";
       const label = target.tagName === "IMG" ? t.image : t.element(target.tagName.toLowerCase());
       setSelected({ element: target, label });
-    }, true);
+    };
   }
 
   function addText(tag: "h2" | "p") {
@@ -248,6 +271,7 @@ export default function EditorPage() {
       body.querySelectorAll<HTMLElement>("[data-export-src]").forEach((element) => {
         element.setAttribute("src", element.dataset.exportSrc ?? "");
       });
+      body.querySelectorAll<HTMLElement>(`[${TEXT_WRAPPER_ATTRIBUTE}]`).forEach((wrapper) => wrapper.replaceWith(...Array.from(wrapper.childNodes)));
       body.querySelectorAll<HTMLElement>("*").forEach((element) => {
         element.removeAttribute("contenteditable");
         element.removeAttribute("spellcheck");
