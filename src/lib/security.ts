@@ -10,12 +10,25 @@ function isPrivateIp(address: string) {
   return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 0) || (a === 192 && b === 168) || a >= 224;
 }
 
+function isLoopbackHost(hostname: string) {
+  const value = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (value === "localhost" || value === "localhost.localdomain" || value === "::1") return true;
+  return isIP(value) === 4 && value.startsWith("127.");
+}
+
+function localSourcesEnabled() {
+  return process.env.ALLOW_LOCAL_SOURCES === "true" && !process.env.VERCEL;
+}
+
 export async function assertSafePublicUrl(input: string) {
   let url: URL;
   try { url = new URL(input); } catch { throw new Error("Enter a complete URL beginning with http:// or https://."); }
   if (!/^https?:$/.test(url.protocol)) throw new Error("Only HTTP and HTTPS URLs are supported.");
   if (url.username || url.password) throw new Error("URLs containing credentials are not supported.");
-  if (["localhost", "localhost.localdomain"].includes(url.hostname.toLowerCase())) throw new Error("Local network addresses are blocked.");
+  if (isLoopbackHost(url.hostname)) {
+    if (!localSourcesEnabled()) throw new Error("Localhost sources are blocked. Native Xtractor can enable them with ALLOW_LOCAL_SOURCES=true.");
+    return url;
+  }
   const records = await lookup(url.hostname, { all: true, verbatim: true });
   if (!records.length || records.some((record) => isPrivateIp(record.address))) throw new Error("That hostname resolves to a private or unsafe network address.");
   return url;

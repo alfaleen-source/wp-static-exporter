@@ -66,6 +66,18 @@ npm run dev
 
 Set `EXPORTER_PASSWORD` in `.env.local`. Without `BLOB_READ_WRITE_TOKEN`, local downloads work only when the generated ZIP is below Vercel's direct-response limit.
 
+### Export a site hosted on localhost
+
+Localhost capture is available only when the exporter and source site run on the same computer. Add this to `.env.local`, then restart the exporter:
+
+```dotenv
+ALLOW_LOCAL_SOURCES=true
+```
+
+You can then export URLs such as `http://localhost:8080/old-design/`, `http://127.0.0.1:4173/`, or `http://[::1]:3000/`. Only loopback addresses are allowed. Private LAN addresses remain blocked, and Vercel always blocks localhost even if the variable is set.
+
+Serve extracted HTML through a local HTTP server instead of using a `file:` URL. The source server must remain running until capture and asset downloading finish. If the source runs in Docker or WSL, expose its port so the native Xtractor process can reach it through a loopback URL.
+
 ## Vercel setup
 
 1. Import this repository into Vercel.
@@ -79,8 +91,9 @@ Set `EXPORTER_PASSWORD` in `.env.local`. Without `BLOB_READ_WRITE_TOKEN`, local 
 - 450 downloaded assets
 - 18 MB per asset
 - 90 MB uncompressed downloaded assets
-- Public HTTP/HTTPS sources only
-- Private, loopback, link-local, and credential-bearing URLs are blocked
+- HTTP/HTTPS sources only
+- Private, link-local, and credential-bearing URLs are blocked
+- Loopback URLs are accepted only by native local runs with `ALLOW_LOCAL_SOURCES=true`; hosted deployments always block them
 - Export stops instead of producing a package when responsive CRM token placement differs between desktop, tablet, and mobile captures
 
 Only export sites you own or are authorized to reproduce. Review `export-report.html` and visually check desktop, tablet, and mobile layouts before publishing an exported site.
